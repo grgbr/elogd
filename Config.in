@@ -1,0 +1,128 @@
+config ELOGD_ASSERT
+	bool "Assertion"
+	default n
+	help
+	  Build elogd with internal assertions.
+
+config ELOGD_STDLOG_SEVERITY
+	int "STDIO logger severity"
+	range 0 7
+	default 4
+	help
+	  Internal elogd daemon messages with severity greater than this won't
+	  be sent to standard I/O logger.
+	  See syslog(3) levels for more informations about available severities.
+
+config ELOGD_STDLOG_FORMAT
+	hex "STDIO logger format"
+	range 0 0x1f
+	default 0x10
+	help
+	  Internal elogd daemon messages sent to standard I/O logger will be
+	  logged according to this format.
+	  See eLog library's header elog_format enum for more informations about
+	  available format flags.
+
+config ELOGD_KMSG_FETCH
+	int "Number of kernel message fetches"
+	range 1 1024
+	default 16
+	help
+	  Number of kernel messages that elogd daemon will fetch in a single
+	  polling iteration.
+
+config ELOGD_MQUEUE_FETCH
+	int "Number of message queue fetches"
+	range 1 1024
+	default 16
+	help
+	  Number of message queue messages that elogd daemon will fetch in a
+	  single polling iteration.
+
+config ELOGD_SVC_FETCH
+	int "Number of syslog message fetches"
+	range 1 1024
+	default 16
+	help
+	  Number of syslog socket messages that elogd daemon will fetch in a
+	  single polling iteration.
+
+config ELOGD_USER
+	string "runtime user name"
+	default "elogd"
+	help
+	  System user name which elogd daemon will switch to at running time.
+
+config ELOGD_LOCK_PATH
+	string "Lock file path"
+	default "/run/lock/elogd"
+	help
+	  Pathname to lock file.
+
+config ELOGD_STAT_PATH
+	string "Private state path"
+	default "/run/elogd/stat"
+	help
+	  Pathname to file hosting elogd daemon internal state.
+
+config ELOGD_SOCK_PATH
+	string "Syslog service socket path"
+	default "/run/elogd/sock"
+	help
+	  Pathname to socket file exposing syslog service.
+
+config ELOGD_SVC_MODE
+	int "Syslog socket permissions"
+	default 420
+	help
+	  Permissions (in octal) assigned to syslog socket at creation time.
+
+config ELOGD_SVC_GROUP
+	string "Syslog socket group"
+	default "logpost"
+	help
+	  At creation time, syslog socket will be assigned to this group. Note
+	  that the system user selected by CONFIG_ELOGD_USER MUST be a member of
+	  this group.
+
+config ELOGD_DIR_PATH
+	string "Logging output directory"
+	default "/run/elog"
+	help
+	  Pathname to directory where logging output files will be stored.
+
+config ELOGD_FILE_BASE
+	string "Logging output file basename"
+	default "elogd"
+	help
+	  Logging output file path basename.
+
+config ELOGD_FILE_MODE
+	int "Logging output file permissions"
+	default 640
+	help
+	  Permissions (in octal) assigned to logging output files.
+
+config ELOGD_FILE_GROUP
+	string "Logging output file group"
+	default "elogd"
+	help
+	  At creation time, logging output files will be assigned to this group.
+	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a
+	  member of this group.
+
+config ELOGD_MAX_SIZE
+	int "Logging output file size"
+	range 4096 2147483648
+	default 131072
+	help
+	  Maximum size in bytes of a single occurence of a logging output file.
+
+config ELOGD_MAX_ROT
+	int "Number of logging output file rotations"
+	range 2 100
+	default 2
+	help
+	  Maximum number of archived logging output file.
+
+# ex: filetype=kconfig
