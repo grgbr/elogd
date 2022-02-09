@@ -23,6 +23,12 @@ static gid_t elogd_gid;
  * Configuration handling.
  ******************************************************************************/
 
+#define ELOGD_SVC_MODE \
+	UCONCAT(0, CONFIG_ELOGD_SVC_MODE)
+
+#define ELOGD_FILE_MODE \
+	UCONCAT(0, CONFIG_ELOGD_FILE_MODE)
+
 static struct {
 	const char * user;
 	const char * lock_path;
@@ -46,14 +52,14 @@ static struct {
 	.kmsg_fetch   = CONFIG_ELOGD_KMSG_FETCH,
 	.mqueue_fetch = CONFIG_ELOGD_MQUEUE_FETCH,
 	.svc_fetch    = CONFIG_ELOGD_SVC_FETCH,
-	.svc_mode     = CONFIG_ELOGD_SVC_MODE,
+	.svc_mode     = ELOGD_SVC_MODE,
 	.svc_group    = CONFIG_ELOGD_SVC_GROUP,
 	.dir_path     = CONFIG_ELOGD_DIR_PATH,
 	.stat_path    = CONFIG_ELOGD_STAT_PATH,
 	.sock_path    = CONFIG_ELOGD_SOCK_PATH,
 	.file_base    = CONFIG_ELOGD_FILE_BASE,
 	.file_len     = sizeof(CONFIG_ELOGD_FILE_BASE) - 1,
-	.file_mode    = CONFIG_ELOGD_FILE_MODE,
+	.file_mode    = ELOGD_FILE_MODE,
 	.file_group   = CONFIG_ELOGD_FILE_GROUP,
 	.max_size     = CONFIG_ELOGD_MAX_SIZE,
 	.max_rot      = CONFIG_ELOGD_MAX_ROT
