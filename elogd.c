@@ -2542,6 +2542,11 @@ main(void)
 
 	do {
 		err = upoll_process(&poll, -1);
+		if (err == -EINTR) {
+			/* ignore signals interrupts (i.e. ptrace(2) related) */
+			err = 0;
+			continue;
+		}
 		elogd_assert(!err || (err == -ESHUTDOWN));
 
 		elogd_flush_store(&store, &queue);
