@@ -2441,6 +2441,27 @@ elogd_unlock(int fd)
 	ufile_close(fd);
 }
 
+static void
+elogd_drop_caps(void)
+{
+	int err;
+
+	err = enbox_lock_caps();
+	if (err)
+		goto err;
+
+	err = enbox_drop_bounding_caps();
+	if (err)
+		goto err;
+
+	return;
+
+err:
+	elogd_err("cannot drop capabilities: %s (%d)", strerror(-err), -err);
+
+	exit(EXIT_FAILURE);
+}
+
 int
 main(void)
 {
@@ -2460,8 +2481,8 @@ main(void)
 
 	elog_init_stdio(&elogd_stdlog, &elogd_stdlog_conf);
 	enbox_setup((struct elog *)&elogd_stdlog);
-	enbox_drop_caps();
-	enbox_change_ids(elogd_conf.user);
+	elogd_drop_caps();
+	enbox_change_ids(elogd_conf.user, ENBOX_KEEP_SUPP_GROUPS);
 
 	lck = elogd_lock();
 	if (lck < 0) {
