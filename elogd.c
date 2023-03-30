@@ -2450,7 +2450,7 @@ elogd_drop_caps(void)
 	if (err)
 		goto err;
 
-	err = enbox_drop_bounding_caps();
+	err = enbox_clear_bounding_caps();
 	if (err)
 		goto err;
 
@@ -2482,7 +2482,7 @@ main(void)
 	elog_init_stdio(&elogd_stdlog, &elogd_stdlog_conf);
 	enbox_setup((struct elog *)&elogd_stdlog);
 	elogd_drop_caps();
-	enbox_change_ids(elogd_conf.user, ENBOX_KEEP_SUPP_GROUPS);
+	enbox_change_ids(elogd_conf.user, ENBOX_RAISE_SUPP_GROUPS);
 
 	lck = elogd_lock();
 	if (lck < 0) {
