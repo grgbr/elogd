@@ -1,7 +1,7 @@
 #include "elogd/config.h"
 #include <elog/elog.h>
+#include <stroll/dlist.h>
 #include <utils/time.h>
-#include <utils/dlist.h>
 #include <utils/mqueue.h>
 #include <utils/unsk.h>
 #include <utils/file.h>
@@ -277,16 +277,16 @@ enum {
 };
 
 struct elogd_line {
-	struct dlist_node node;
-	struct timespec   tstamp;
-	int               facility;
-	int               severity;
-	size_t            tag_len;
-	const char *      tag;
-	pid_t             pid;
-	struct iovec      vector[ELOGD_LINE_IOVEC_NR];
-	char              head[ELOGD_HEAD_MAX_SIZE];
-	char              data[ELOGD_LINE_MAX_LEN + 1];
+	struct stroll_dlist_node node;
+	struct timespec          tstamp;
+	int                      facility;
+	int                      severity;
+	size_t                   tag_len;
+	const char *             tag;
+	pid_t                    pid;
+	struct iovec             vector[ELOGD_LINE_IOVEC_NR];
+	char                     head[ELOGD_HEAD_MAX_SIZE];
+	char                     data[ELOGD_LINE_MAX_LEN + 1];
 };
 
 #define elog_assert_line_head(_line, _iovec) \
@@ -410,17 +410,17 @@ elogd_free_line(struct elogd_line * line)
  ******************************************************************************/
 
 struct elogd_queue {
-	struct dlist_node    free;
-	unsigned int         busy_cnt;
-	struct dlist_node    busy;
-	unsigned int         nr;
-	struct elogd_line ** lines;
+	struct stroll_dlist_node free;
+	unsigned int             busy_cnt;
+	struct stroll_dlist_node busy;
+	unsigned int             nr;
+	struct elogd_line **     lines;
 };
 
 static struct elogd_line * __elog_nonull(1) __pure
-elogd_line_from_node(const struct dlist_node * __restrict node)
+elogd_line_from_node(const struct stroll_dlist_node * __restrict node)
 {
-	return dlist_entry(node, struct elogd_line, node);
+	return stroll_dlist_entry(node, struct elogd_line, node);
 }
 
 static unsigned int __elog_nonull(1) __pure
@@ -430,7 +430,7 @@ elogd_queue_nr(const struct elogd_queue * __restrict queue)
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 
 	return queue->nr;
 }
@@ -442,7 +442,7 @@ elogd_queue_busy_count(const struct elogd_queue * __restrict queue)
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 
 	return queue->busy_cnt;
 }
@@ -458,21 +458,21 @@ elogd_nqueue_line(struct elogd_queue * __restrict queue,
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt < queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 	elog_assert_queued_line(line);
 
-	struct dlist_node *     node;
-        const struct timespec * tstamp = &line->tstamp;
+	struct stroll_dlist_node * node;
+        const struct timespec *    tstamp = &line->tstamp;
 
-	for (node = dlist_prev(&queue->busy);
+	for (node = stroll_dlist_prev(&queue->busy);
 	     node != &queue->busy;
-	     node = dlist_prev(node))
+	     node = stroll_dlist_prev(node))
 		if (utime_tspec_after_eq(tstamp,
 		                         &elogd_line_from_node(node)->tstamp))
 			break;
 
 	queue->busy_cnt++;
-	dlist_append(node, &line->node);
+	stroll_dlist_append(node, &line->node);
 }
 
 #if 0
@@ -484,48 +484,50 @@ elogd_dqueue_line(struct elogd_queue * __restrict queue)
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt);
 	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!dlist_empty(&queue->busy));
+	elogd_assert(!stroll_dlist_empty(&queue->busy));
 
 	queue->busy_cnt--;
-	return elogd_line_from_node(dlist_dqueue_front(&queue->busy));
+	return elogd_line_from_node(stroll_dlist_dqueue_front(&queue->busy));
 }
 
 static void __elog_nonull(1, 2, 3)
-elogd_bulk_dqueue_lines(struct elogd_queue *           queue,
-                        struct dlist_node * __restrict lines,
-                        struct elogd_line *            last,
-                        unsigned int                   count)
+elogd_bulk_dqueue_lines(struct elogd_queue *                  queue,
+                        struct stroll_dlist_node * __restrict lines,
+                        struct elogd_line *                   last,
+                        unsigned int                          count)
 {
 	elogd_assert(queue);
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt);
 	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!dlist_empty(&queue->busy));
+	elogd_assert(!stroll_dlist_empty(&queue->busy));
 	elogd_assert(lines);
 	elog_assert_queued_line(last);
 	elogd_assert(count);
 	elogd_assert(count <= queue->busy_cnt);
 
 	queue->busy_cnt -= count;
-	dlist_splice(lines, dlist_first(&queue->busy), &last->node);
+	stroll_dlist_splice_before(lines,
+	                           stroll_dlist_next(&queue->busy),
+	                           &last->node);
 }
 #endif
 
 static int __elog_nonull(1, 2, 3, 5)
-elogd_dqueue_iovec_lines(struct elogd_queue *           queue,
-                         struct dlist_node * __restrict lines,
-                         struct iovec * __restrict      vectors,
-                         unsigned int                   max_cnt,
-                         size_t * __restrict            size)
+elogd_dqueue_iovec_lines(struct elogd_queue *                  queue,
+                         struct stroll_dlist_node * __restrict lines,
+                         struct iovec * __restrict             vectors,
+                         unsigned int                          max_cnt,
+                         size_t * __restrict                   size)
 {
 	elogd_assert(queue);
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt);
 	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!dlist_empty(&queue->busy));
-	elogd_assert(dlist_empty(lines));
+	elogd_assert(!stroll_dlist_empty(&queue->busy));
+	elogd_assert(stroll_dlist_empty(lines));
 	elogd_assert(vectors);
 	elogd_assert(max_cnt);
 	elogd_assert(max_cnt <= queue->busy_cnt);
@@ -534,17 +536,17 @@ elogd_dqueue_iovec_lines(struct elogd_queue *           queue,
 	elogd_assert(*size);
 	elogd_assert(*size <= SSIZE_MAX);
 
-	struct timespec     boot;
-	struct dlist_node * first;
-	struct dlist_node * node;
-	struct dlist_node * last;
-	unsigned int        cnt = 0;
-	size_t              bytes = 0;
+	struct timespec            boot;
+	struct stroll_dlist_node * first;
+	struct stroll_dlist_node * node;
+	struct stroll_dlist_node * last;
+	unsigned int               cnt = 0;
+	size_t                     bytes = 0;
 
 	/* Get time of boot (in the realtime space). */
 	elogd_real_boot_time(&boot);
 
-	first = dlist_first(&queue->busy);
+	first = stroll_dlist_next(&queue->busy);
 	node = first;
 	while (true) {
 		size_t len;
@@ -561,14 +563,14 @@ elogd_dqueue_iovec_lines(struct elogd_queue *           queue,
 			break;
 
 		elogd_assert(cnt < max_cnt);
-		node = dlist_next(node);
+		node = stroll_dlist_next(node);
 	}
 
 	if (!cnt)
 		return -ENOSPC;
 
 	queue->busy_cnt -= cnt;
-	dlist_splice(lines, first, last);
+	stroll_dlist_splice_before(lines, first, last);
 
 	*size = bytes;
 
@@ -584,35 +586,37 @@ elogd_requeue_line(struct elogd_queue * __restrict queue,
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt < queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 	elog_assert_queued_line(line);
 	elog_assert_line_head(line, line->vector);
 
 	queue->busy_cnt++;
-	dlist_nqueue_front(&queue->busy, &line->node);
+	stroll_dlist_nqueue_front(&queue->busy, &line->node);
 }
 #endif
 
 static void __elog_nonull(1, 2)
 elogd_bulk_requeue_lines(struct elogd_queue * __restrict queue,
-                         struct dlist_node *             lines,
+                         struct stroll_dlist_node *      lines,
                          unsigned int                    count)
 {
 	elogd_assert(queue);
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 	elogd_assert(count);
 	elogd_assert((queue->busy_cnt + count) <= queue->nr);
-	elogd_assert(!dlist_empty(lines));
+	elogd_assert(!stroll_dlist_empty(lines));
 
 	queue->busy_cnt += count;
-	dlist_embed(&queue->busy, dlist_first(lines), dlist_last(lines));
+	stroll_dlist_embed_after(&queue->busy,
+	                         stroll_dlist_next(lines),
+	                         stroll_dlist_prev(lines));
 }
 
 static void __elog_nonull(1, 2, 3)
 elogd_requeue_iovec_lines(struct elogd_queue * __restrict queue,
-                          struct dlist_node *             lines,
+                          struct stroll_dlist_node *      lines,
                           const struct iovec * __restrict vectors,
                           unsigned int                    count,
                           size_t                          written)
@@ -620,21 +624,21 @@ elogd_requeue_iovec_lines(struct elogd_queue * __restrict queue,
 	elogd_assert(queue);
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
-	elogd_assert(!dlist_empty(lines));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
+	elogd_assert(!stroll_dlist_empty(lines));
 	elogd_assert(vectors);
 	elogd_assert(count);
 	elogd_assert((2 * count) <= IOV_MAX);
 	elogd_assert((queue->busy_cnt + count) <= queue->nr);
 	elogd_assert(written < SSIZE_MAX);
 
-	struct dlist_node *  first;
-	struct dlist_node *  node;
-	struct dlist_node *  last;
-	unsigned int         cnt = 0;
-	size_t               size = 0;
+	struct stroll_dlist_node * first;
+	struct stroll_dlist_node * node;
+	struct stroll_dlist_node * last;
+	unsigned int               cnt = 0;
+	size_t                     size = 0;
 
-	first = dlist_first(lines);
+	first = stroll_dlist_next(lines);
 	node = first;
 	while (true) {
 		const struct iovec * vecs = &vectors[2 * cnt];
@@ -647,7 +651,7 @@ elogd_requeue_iovec_lines(struct elogd_queue * __restrict queue,
 
 		size += bytes;
 		last = node;
-		node = dlist_next(lines);
+		node = stroll_dlist_next(lines);
 		cnt++;
 	}
 
@@ -662,11 +666,11 @@ elogd_requeue_iovec_lines(struct elogd_queue * __restrict queue,
 
 	if (cnt)
 		/* Release completed lines. */
-		dlist_embed(&queue->free, first, last);
+		stroll_dlist_embed_after(&queue->free, first, last);
 
 	/* Requeue uncompleted lines. */
 	queue->busy_cnt += count - cnt;
-	dlist_embed(&queue->busy, node, dlist_last(lines));
+	stroll_dlist_embed_after(&queue->busy, node, stroll_dlist_prev(lines));
 }
 
 static struct elogd_line * __elog_nonull(1)
@@ -676,12 +680,12 @@ elogd_acquire_line(struct elogd_queue * __restrict queue)
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 
-	if (!dlist_empty(&queue->free)) {
+	if (!stroll_dlist_empty(&queue->free)) {
 		struct elogd_line * ln;
 
-		ln = elogd_line_from_node(dlist_dqueue_front(&queue->free));
+		ln = elogd_line_from_node(stroll_dlist_dqueue_front(&queue->free));
 		elogd_reset_line(ln);
 
 		return ln;
@@ -698,23 +702,25 @@ elogd_release_line(struct elogd_queue * __restrict queue,
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt < queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 	elogd_assert(line);
 
-	dlist_nqueue_front(&queue->free, &line->node);
+	stroll_dlist_nqueue_front(&queue->free, &line->node);
 }
 
 static void __elog_nonull(1, 2)
 elogd_bulk_release_lines(struct elogd_queue * __restrict queue,
-                         struct dlist_node *             lines)
+                         struct stroll_dlist_node *      lines)
 {
 	elogd_assert(queue);
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt < queue->nr);
-	elogd_assert(!dlist_empty(lines));
+	elogd_assert(!stroll_dlist_empty(lines));
 
-	dlist_embed(&queue->free, dlist_first(lines), dlist_last(lines));
+	stroll_dlist_embed_after(&queue->free,
+	                         stroll_dlist_next(lines),
+	                         stroll_dlist_prev(lines));
 }
 
 static int __elog_nonull(1)
@@ -729,18 +735,18 @@ elogd_init_queue(struct elogd_queue * __restrict queue, unsigned int nr)
 	if (!lines)
 		return -ENOMEM;
 
-	dlist_init(&queue->free);
+	stroll_dlist_init(&queue->free);
 
 	for (l = 0; l < nr; l++) {
 		lines[l] = elogd_alloc_line();
 		if (!lines[l])
 			goto destroy;
 
-		dlist_nqueue_front(&queue->free, &lines[l]->node);
+		stroll_dlist_nqueue_front(&queue->free, &lines[l]->node);
 	}
 
 	queue->busy_cnt = 0;
-	dlist_init(&queue->busy);
+	stroll_dlist_init(&queue->busy);
 	queue->nr = nr;
 	queue->lines = lines;
 
@@ -762,7 +768,7 @@ elogd_fini_queue(struct elogd_queue * __restrict queue)
 	elogd_assert(queue->nr);
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ dlist_empty(&queue->busy));
+	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
 
 	unsigned int l;
 
@@ -1052,10 +1058,10 @@ elogd_flush_store_queue(struct elogd_store * __restrict store,
 	elogd_assert(size);
 	elogd_assert(size <= SSIZE_MAX);
 
-	struct dlist_node lines = DLIST_INIT(lines);
-	struct iovec      vectors[2 * max_cnt];
-	int               cnt;
-	ssize_t           ret;
+	struct stroll_dlist_node lines = STROLL_DLIST_INIT(lines);
+	struct iovec             vectors[2 * max_cnt];
+	int                      cnt;
+	ssize_t                  ret;
 
 	cnt = elogd_dqueue_iovec_lines(queue, &lines, vectors, max_cnt, &size);
 	elogd_assert(cnt);
