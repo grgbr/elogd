@@ -24,10 +24,10 @@ static gid_t elogd_gid;
  ******************************************************************************/
 
 #define ELOGD_SVC_MODE \
-	UCONCAT(0, CONFIG_ELOGD_SVC_MODE)
+	STROLL_CONCAT(0, CONFIG_ELOGD_SVC_MODE)
 
 #define ELOGD_FILE_MODE \
-	UCONCAT(0, CONFIG_ELOGD_FILE_MODE)
+	STROLL_CONCAT(0, CONFIG_ELOGD_FILE_MODE)
 
 static struct {
 	const char * user;
@@ -321,7 +321,8 @@ elogd_fixup_partial_line(struct elogd_line * __restrict line, size_t written)
 	                       line->vector[ELOGD_LINE_MSG_IOVEC].iov_len));
 
 	struct iovec * vec = line->vector;
-	size_t         head = umin(vec[ELOGD_LINE_HEAD_IOVEC].iov_len, written);
+	size_t         head = stroll_min(vec[ELOGD_LINE_HEAD_IOVEC].iov_len,
+	                                 written);
 
 	vec[ELOGD_LINE_HEAD_IOVEC].iov_base += head;
 	vec[ELOGD_LINE_HEAD_IOVEC].iov_len -= head;
@@ -357,7 +358,8 @@ elogd_fulfill_line(struct elogd_line * __restrict     line,
 		len += elogd_fill_realtime_field(&head[len], &line->tstamp);
 
 		if (line->tag_len) {
-			line->tag_len = umin(line->tag_len, ELOGD_TAG_MAX_LEN);
+			line->tag_len = stroll_min(line->tag_len,
+			                           ELOGD_TAG_MAX_LEN);
 
 			head[len++] = ' ';
 			memcpy(&head[len], line->tag, line->tag_len);
@@ -1123,13 +1125,13 @@ elogd_flush_store(struct elogd_store * __restrict store,
 		}
 	}
 
-	cnt = umin(elogd_queue_busy_count(queue), elogd_queue_nr(queue));
+	cnt = stroll_min(elogd_queue_busy_count(queue), elogd_queue_nr(queue));
 	if (!cnt)
 		return;
 
 	if (elogd_conf.max_rot > 1) {
-		max_sz = elogd_conf.max_size - umin(store->size,
-		                                    elogd_conf.max_size);
+		max_sz = elogd_conf.max_size - stroll_min(store->size,
+		                                          elogd_conf.max_size);
 		if (max_sz <= (ELOGD_HEAD_MIN_SIZE - 1 + sizeof('\n')))
 			goto rotate;
 	}
@@ -1224,10 +1226,11 @@ elogd_open_store(struct elogd_store * __restrict store)
 		           strerror(-err),
 		           -err);
 
-	elogd_conf.max_size = umin(elogd_conf.max_size / stat.f_frsize,
-	                           stat.f_blocks / elogd_conf.max_rot);
-	elogd_conf.max_size = umin(elogd_conf.max_size,
-	                           ELOGD_FILE_SIZE_MAX / stat.f_frsize);
+	elogd_conf.max_size = stroll_min(elogd_conf.max_size / stat.f_frsize,
+	                                 stat.f_blocks / elogd_conf.max_rot);
+	elogd_conf.max_size = stroll_min(elogd_conf.max_size,
+	                                 ELOGD_FILE_SIZE_MAX /
+	                                 (size_t)stat.f_frsize);
 	elogd_conf.max_size *= stat.f_frsize;
 
 	return 0;
