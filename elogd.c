@@ -67,10 +67,10 @@ static struct {
 
 #if defined(CONFIG_ELOGD_ASSERT)
 
-#include <utils/assert.h>
+#include <stroll/assert.h>
 
 #define elogd_assert(_expr) \
-	uassert("elogd", _expr)
+	stroll_assert("elogd", _expr)
 
 #else  /* !defined(CONFIG_ELOGD_ASSERT) */
 
@@ -987,7 +987,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 		sprintf(&nevv[len], "%u", rot);
 
 		/* Ignore errors since file might be missing. */
-		err = ufile_rename_at(store->dir, orig, nevv);
+		err = ufile_rename_at(store->dir, orig, store->dir, nevv, 0);
 		if (err)
 			elogd_warn("'%s/%s': "
 			           "cannot rotate logging file: %s (%d)",
