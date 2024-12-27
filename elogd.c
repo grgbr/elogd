@@ -941,10 +941,10 @@ elogd_open_store_file(struct elogd_store * __restrict store)
 		goto close;
 	}
 
-	if (elogd_conf.svc_group) {
+	if (elogd_conf.file_group && elogd_conf.file_group[0] != '\0') {
 		err = upwd_get_gid_byname(elogd_conf.file_group, &gid);
 		if (err)
-			elogd_warn("'%s': invalid logging file group, "
+			elogd_warn("'%s': unknown logging file group, "
 			           "using default GID %d.\n",
 			           elogd_conf.file_group,
 			           gid);
@@ -2489,10 +2489,27 @@ err:
 
 #define USAGE \
 "Usage: %1$s [OPTIONS]\n" \
-"eLogd system early logging daemon.\n" \
+"eLogd early system logging daemon.\n" \
 "\n" \
 "With OPTIONS:\n" \
-"    -h|--help -- this help message\n"
+"    -u|--user USER        -- run as USER system user\n" \
+"    -l|--lock-path PATH   -- use PATH as pathname to lock file\n" \
+"    -s|--stat-path PATH   -- use PATH as pathname to private status file\n" \
+"    -o|--log-path PATH    -- use PATH as pathname to output logging files\n" \
+"    -z|--log-size SIZE    -- restrict output logging files size to SIZE bytes\n" \
+"    -r|--log-rotate COUNT -- rotate up to COUNT output logging files\n" \
+"    -e|--log-group GROUP  -- set output logging files group membership to GROUP\n" \
+"    -m|--log-mode MODE    -- set output logging files file mode bits to MODE\n" \
+"    -p|--sock-path PATH   -- use PATH as pathname to syslog socket file\n" \
+"    -s|--sock-group GROUP -- set syslog socket file group membership to GROUP\n" \
+"    -c|--sock-mode MODE   -- set syslog socket file mode bits to MODE\n" \
+"    -f|--sock-fetch COUNT -- set maximum number of messages to fetch from\n" \
+"                             syslog socket to COUNT in a row\n" \
+"    -k|--kern-fetch COUNT -- set maximum number of messages to fetch from\n" \
+"                             kernel ring-buffer to COUNT in a row\n" \
+"    -q|--mq-fetch COUNT   -- set maximum number of messages to fetch from\n" \
+"                             shared message queue to COUNT in a row\n" \
+"    -h|--help             -- this help message\n"
 
 static void
 show_usage(void)
@@ -2517,28 +2534,37 @@ main(int argc, char * const argv[])
 
 	while (true) {
 		static const struct option opts[] = {
-			{ "file-group", required_argument, NULL, 'f' },
-			{ "lock",       required_argument, NULL, 'l' },
-			{ "outdir",     required_argument, NULL, 'o' },
-			{ "help",       no_argument,       NULL, 'h' },
-			{ NULL,         0,                 NULL, 0 }
+			{ "user",        required_argument, NULL, 'u' },
+			{ "lock-path",   required_argument, NULL, 'l' },
+			{ "log-group",   optional_argument, NULL, 'e' },
+			{ "log-path",    required_argument, NULL, 'o' },
+			{ "help",        no_argument,       NULL, 'h' },
+			{ NULL,          0,                 NULL, 0 }
 		};
 
-		err = getopt_long(argc, argv, ":f:l:o:h", opts, NULL);
+		err = getopt_long(argc, argv, ":u:l:e::o:h", opts, NULL);
 		if (err < 0)
 			break;
 
 		switch (err) {
-		case 'h':
-			show_usage();
-			return EXIT_SUCCESS;
-
-		case 'f':
-			if (upwd_validate_group_name(optarg) < 0) {
-				elogd_err("invalid logging file group name.\n");
+		case 'u':
+			if (upwd_validate_user_name(optarg) < 0) {
+				elogd_err("invalid daemon user name.\n");
 				return EXIT_FAILURE;
 			}
-			elogd_conf.file_group = optarg;
+			elogd_conf.user = optarg;
+			break;
+
+		case 'e':
+			if (optarg) {
+				if (upwd_validate_group_name(optarg) < 0) {
+					elogd_err("invalid logging file group name.\n");
+					return EXIT_FAILURE;
+				}
+				elogd_conf.file_group = optarg;
+			}
+			else
+				elogd_conf.file_group = NULL;
 			break;
 
 		case 'l':
@@ -2558,6 +2584,10 @@ main(int argc, char * const argv[])
 			elogd_conf.dir_path = optarg;
 			break;
 
+		case 'h':
+			show_usage();
+			return EXIT_SUCCESS;
+
 		case ':':
 		case '?':
 			elogd_err("unrecognized option '%s'.\n\n",
@@ -2570,7 +2600,7 @@ main(int argc, char * const argv[])
 		}
 	}
 
-	if ((optind + 1) != argc) {
+	if (argc - optind) {
 		elogd_err("invalid number of arguments.\n\n");
 		goto usage;
 	}
@@ -2579,8 +2609,8 @@ main(int argc, char * const argv[])
 
 	elog_init_stdio(&elogd_stdlog, &elogd_stdlog_conf);
 	enbox_setup((struct elog *)&elogd_stdlog);
-	elogd_drop_caps();
-	enbox_change_ids(elogd_conf.user, ENBOX_RAISE_SUPP_GROUPS);
+	//elogd_drop_caps();
+	//enbox_change_ids(elogd_conf.user, ENBOX_RAISE_SUPP_GROUPS);
 
 	lck = elogd_lock();
 	if (lck < 0) {
