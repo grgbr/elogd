@@ -9,6 +9,7 @@
 #include <utils/signal.h>
 #include <enbox/enbox.h>
 #include <ctype.h>
+#include <getopt.h>
 #include <sys/file.h>
 #include <sys/uio.h>
 #include <sys/mman.h>
@@ -244,13 +245,13 @@ elogd_probe_string_delim(const char * __restrict string, int delim, size_t len)
 
 #define elogd_err(_format, ...) \
 	fprintf(stderr, \
-	        "%s: error: " _format ".\n", \
+	        "%s: error: " _format, \
 	        program_invocation_short_name, \
 	        ## __VA_ARGS__)
 
 #define elogd_warn(_format, ...) \
 	fprintf(stderr, \
-	        "%s: warning: " _format ".\n", \
+	        "%s: warning: " _format, \
 	        program_invocation_short_name, \
 	        ## __VA_ARGS__)
 
@@ -944,7 +945,7 @@ elogd_open_store_file(struct elogd_store * __restrict store)
 		err = upwd_get_gid_byname(elogd_conf.file_group, &gid);
 		if (err)
 			elogd_warn("'%s': invalid logging file group, "
-			           "using default GID %d",
+			           "using default GID %d.\n",
 			           elogd_conf.file_group,
 			           gid);
 	}
@@ -989,7 +990,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 
 	err = ufile_sync(store->fd);
 	if (err)
-		elogd_warn("'%s/%s': cannot sync logging file: %s (%d)",
+		elogd_warn("'%s/%s': cannot sync logging file: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           orig,
 		           strerror(-err),
@@ -1003,7 +1004,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 		err = ufile_rename_at(store->dir, orig, store->dir, nevv, 0);
 		if (err)
 			elogd_warn("'%s/%s': "
-			           "cannot rotate logging file: %s (%d)",
+			           "cannot rotate logging file: %s (%d).\n",
 			           elogd_conf.dir_path,
 			           orig,
 			           strerror(-err),
@@ -1017,7 +1018,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 	/* Just in case we failed to move primary logging output file. */
 	err = ufile_unlink_at(store->dir, orig);
 	if (err && (err != -ENOENT))
-		elogd_warn("'%s/%s': cannot unlink logging file: %s (%d)",
+		elogd_warn("'%s/%s': cannot unlink logging file: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           orig,
 		           strerror(-err),
@@ -1027,7 +1028,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 	err = ufile_close(store->fd);
 	if (err)
 		elogd_warn("'%s/%s': "
-		           "failed to close logging file: %s (%d)",
+		           "failed to close logging file: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           orig,
 		           strerror(-err),
@@ -1036,7 +1037,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 	/* Open / create a new primary logging output file. */
 	err = elogd_open_store_file(store);
 	if (err)
-		elogd_warn("'%s/%s': cannot open logging file: %s (%d)",
+		elogd_warn("'%s/%s': cannot open logging file: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           orig,
 		           strerror(-err),
@@ -1048,7 +1049,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 	 */
 	err = udir_sync(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot sync logging directory: %s (%d)",
+		elogd_warn("'%s': cannot sync logging directory: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           strerror(-err),
 		           -err);
@@ -1128,7 +1129,8 @@ elogd_flush_store(struct elogd_store * __restrict store,
 	if (store->fd < 0) {
 		ret = elogd_open_store_file(store);
 		if (ret) {
-			elogd_warn("'%s/%s': cannot open logging file: %s (%d)",
+			elogd_warn("'%s/%s': "
+			           "cannot open logging file: %s (%d).\n",
 			           elogd_conf.dir_path,
 			           store->base,
 			           strerror(-ret),
@@ -1161,7 +1163,7 @@ elogd_flush_store(struct elogd_store * __restrict store,
 	if (ret == -ENOSPC)
 		goto rotate;
 
-	elogd_warn("'%s/%s': cannot flush logging file: %s (%d)",
+	elogd_warn("'%s/%s': cannot flush logging file: %s (%d).\n",
 	           elogd_conf.dir_path,
 	           store->base,
 	           strerror(-ret),
@@ -1185,7 +1187,7 @@ elogd_open_store(struct elogd_store * __restrict store)
 	store->dir = udir_open(elogd_conf.dir_path,
 	                       O_CLOEXEC | O_NOATIME | O_NOFOLLOW);
 	if (store->dir < 0) {
-		elogd_err("'%s': cannot open logging directory: %s (%d)",
+		elogd_err("'%s': cannot open logging directory: %s (%d).\n",
 		          elogd_conf.dir_path,
 		          strerror(-store->dir),
 		          -store->dir);
@@ -1200,7 +1202,7 @@ elogd_open_store(struct elogd_store * __restrict store)
 		elogd_assert(err != -EINTR);
 
 		elogd_err("'%s': "
-		          "cannot fetch logging filesystem status: %s (%d)",
+		          "cannot fetch logging filesystem status: %s (%d).\n",
 		          elogd_conf.dir_path,
 		          strerror(-err),
 		          -err);
@@ -1233,7 +1235,7 @@ elogd_open_store(struct elogd_store * __restrict store)
 
 	err = elogd_open_store_file(store);
 	if (err)
-		elogd_warn("'%s/%s': cannot open logging file: %s (%d)",
+		elogd_warn("'%s/%s': cannot open logging file: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           store->base,
 		           strerror(-err),
@@ -1269,7 +1271,8 @@ elogd_close_store(struct elogd_store * __restrict store)
 	if (store->fd >= 0) {
 		err = ufile_sync(store->fd);
 		if (err)
-			elogd_warn("'%s/%s': cannot sync logging file: %s (%d)",
+			elogd_warn("'%s/%s': "
+			           "cannot sync logging file: %s (%d).\n",
 			           elogd_conf.dir_path,
 			           store->base,
 			           strerror(-err),
@@ -1278,7 +1281,7 @@ elogd_close_store(struct elogd_store * __restrict store)
 		err = ufile_close(store->fd);
 		if (err)
 			elogd_warn("'%s/%s': "
-			           "cannot close logging file: %s (%d)",
+			           "cannot close logging file: %s (%d).\n",
 			           elogd_conf.dir_path,
 			           store->base,
 			           strerror(-err),
@@ -1289,14 +1292,14 @@ elogd_close_store(struct elogd_store * __restrict store)
 
 	err = udir_sync(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot sync logging directory: %s (%d)",
+		elogd_warn("'%s': cannot sync logging directory: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           strerror(-err),
 		           -err);
 
 	err = udir_close(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot close logging directory: %s (%d)",
+		elogd_warn("'%s': cannot close logging directory: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           strerror(-err),
 		           -err);
@@ -2167,7 +2170,7 @@ elogd_open_svc(struct elogd_svc * __restrict   svc,
 		err = upwd_get_gid_byname(elogd_conf.svc_group, &gid);
 		if (err)
 			elogd_warn("'%s': invalid logging socket group, "
-			           "using default GID %d",
+			           "using default GID %d.\n",
 			           elogd_conf.svc_group,
 			           gid);
 	}
@@ -2479,14 +2482,28 @@ elogd_drop_caps(void)
 	return;
 
 err:
-	elogd_err("cannot drop capabilities: %s (%d)", strerror(-err), -err);
+	elogd_err("cannot drop capabilities: %s (%d).\n", strerror(-err), -err);
 
 	exit(EXIT_FAILURE);
 }
 
-int
-main(void)
+#define USAGE \
+"Usage: %1$s [OPTIONS]\n" \
+"eLogd system early logging daemon.\n" \
+"\n" \
+"With OPTIONS:\n" \
+"    -h|--help -- this help message\n"
+
+static void
+show_usage(void)
 {
+	fprintf(stderr, USAGE, program_invocation_short_name);
+}
+
+int
+main(int argc, char * const argv[])
+{
+	int                  err;
 	int                  lck;
 	struct elogd_queue   queue;
 	struct upoll         poll;
@@ -2495,9 +2512,68 @@ main(void)
 	struct elogd_kmsg    kmsg;
 	struct elogd_svc     svc;
 	struct elogd_mqueue  mqueue;
-	int                  err;
 	const char *         msg;
 	int                  stat = EXIT_FAILURE;
+
+	while (true) {
+		static const struct option opts[] = {
+			{ "file-group", required_argument, NULL, 'f' },
+			{ "lock",       required_argument, NULL, 'l' },
+			{ "outdir",     required_argument, NULL, 'o' },
+			{ "help",       no_argument,       NULL, 'h' },
+			{ NULL,         0,                 NULL, 0 }
+		};
+
+		err = getopt_long(argc, argv, ":f:l:o:h", opts, NULL);
+		if (err < 0)
+			break;
+
+		switch (err) {
+		case 'h':
+			show_usage();
+			return EXIT_SUCCESS;
+
+		case 'f':
+			if (upwd_validate_group_name(optarg) < 0) {
+				elogd_err("invalid logging file group name.\n");
+				return EXIT_FAILURE;
+			}
+			elogd_conf.file_group = optarg;
+			break;
+
+		case 'l':
+			if (upath_validate_file_name(optarg) < 0) {
+				elogd_err("invalid lock file pathname.\n");
+				return EXIT_FAILURE;
+			}
+			elogd_conf.lock_path = optarg;
+			break;
+
+		case 'o':
+			if (upath_validate_path_name(optarg) < 0) {
+				elogd_err("invalid output logging "
+				          "directory pathname.\n");
+				return EXIT_FAILURE;
+			}
+			elogd_conf.dir_path = optarg;
+			break;
+
+		case ':':
+		case '?':
+			elogd_err("unrecognized option '%s'.\n\n",
+			          argv[optind - 1]);
+			goto usage;
+
+		default:
+			elogd_err("unexpected option parsing error.\n\n");
+			goto usage;
+		}
+	}
+
+	if ((optind + 1) != argc) {
+		elogd_err("invalid number of arguments.\n\n");
+		goto usage;
+	}
 
 	umask(07077);
 
@@ -2596,8 +2672,12 @@ unlock:
 out:
 	if (stat != EXIT_SUCCESS) {
 		elogd_assert(err < 0);
-		elogd_err("%s: %s (%d)", msg, strerror(-err), -err);
+		elogd_err("%s: %s (%d).\n", msg, strerror(-err), -err);
 	}
 
 	return stat;
+
+usage:
+	show_usage();
+	return EXIT_FAILURE;
 }
