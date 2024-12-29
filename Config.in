@@ -23,30 +23,6 @@ config ELOGD_STDLOG_FORMAT
 	  See eLog library's header elog_format enum for more informations about
 	  available format flags.
 
-config ELOGD_KMSG_FETCH
-	int "Number of kernel message fetches"
-	range 1 1024
-	default 16
-	help
-	  Number of kernel messages that elogd daemon will fetch in a single
-	  polling iteration.
-
-config ELOGD_MQUEUE_FETCH
-	int "Number of message queue fetches"
-	range 1 1024
-	default 16
-	help
-	  Number of message queue messages that elogd daemon will fetch in a
-	  single polling iteration.
-
-config ELOGD_SVC_FETCH
-	int "Number of syslog message fetches"
-	range 1 1024
-	default 16
-	help
-	  Number of syslog socket messages that elogd daemon will fetch in a
-	  single polling iteration.
-
 config ELOGD_USER
 	string "runtime user name"
 	default "elogd"
@@ -64,6 +40,37 @@ config ELOGD_STAT_PATH
 	default "/run/elogd/stat"
 	help
 	  Pathname to file hosting elogd daemon internal state.
+
+config ELOGD_FETCH_MIN
+	int
+	default 1
+
+config ELOGD_FETCH_MAX
+	int
+	default 1024
+
+config ELOGD_KMSG_FETCH
+	int "Number of kernel message fetches"
+	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
+	default 16
+	help
+	  Number of kernel messages that elogd daemon will fetch in a single
+	  polling iteration.
+
+config ELOGD_MQUEUE_NAME
+	string "Message queue service name"
+	default "/init"
+	help
+	  Name of POSIX message queue exposed service.
+	  See mq_overview(7) for informations about message queue identifiers.
+
+config ELOGD_MQUEUE_FETCH
+	int "Number of message queue fetches"
+	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
+	default 16
+	help
+	  Number of message queue messages that elogd daemon will fetch in a
+	  single polling iteration.
 
 config ELOGD_SOCK_PATH
 	string "Syslog service socket path"
@@ -84,6 +91,14 @@ config ELOGD_SVC_GROUP
 	  At creation time, syslog socket will be assigned to this group. Note
 	  that the system user selected by CONFIG_ELOGD_USER MUST be a member of
 	  this group.
+
+config ELOGD_SVC_FETCH
+	int "Number of syslog message fetches"
+	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
+	default 16
+	help
+	  Number of syslog socket messages that elogd daemon will fetch in a
+	  single polling iteration.
 
 config ELOGD_DIR_PATH
 	string "Logging output directory"
@@ -111,16 +126,32 @@ config ELOGD_FILE_GROUP
 	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a
 	  member of this group.
 
-config ELOGD_MAX_SIZE
+config ELOGD_SIZE_MIN
+	int
+	default 4096
+
+config ELOGD_SIZE_MAX
+	int
+	default 2147483648
+
+config ELOGD_SIZE
 	int "Logging output file size"
-	range 4096 2147483648
+	range ELOGD_SIZE_MIN ELOGD_SIZE_MAX
 	default 131072
 	help
 	  Maximum size in bytes of a single occurence of a logging output file.
 
-config ELOGD_MAX_ROT
+config ELOGD_ROT_MIN
+	int
+	default 1
+
+config ELOGD_ROT_MAX
+	int
+	default 1000
+
+config ELOGD_ROT_NR
 	int "Number of logging output file rotations"
-	range 2 100
+	range ELOGD_ROT_MIN ELOGD_ROT_MAX
 	default 2
 	help
 	  Maximum number of archived logging output file.

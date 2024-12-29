@@ -1,4 +1,16 @@
+#if !defined(_GNU_SOURCE)
+#error elogd expects the GNU version of basename(3) !
+#endif /* !defined(_GNU_SOURCE) */
+
 #include "elogd/config.h"
+
+#include <libgen.h>
+/* Make sure we use the GNU version of basename(3). */
+#if defined(basename)
+#undef basename
+#endif /* defined(basename) */
+#include <string.h>
+
 #include <elog/elog.h>
 #include <stroll/dlist.h>
 #include <utils/time.h>
@@ -24,6 +36,14 @@ static gid_t elogd_gid;
  * Configuration handling.
  ******************************************************************************/
 
+/* Limit maximum file size to 2GB. */
+#define ELOGD_FILE_SIZE_MIN STROLL_CONCAT(CONFIG_ELOGD_SIZE_MIN, U)
+#define ELOGD_FILE_SIZE_MAX STROLL_CONCAT(CONFIG_ELOGD_SIZE_MAX, U)
+#define ELOGD_FILE_ROT_MIN  STROLL_CONCAT(CONFIG_ELOGD_ROT_MIN, U)
+#define ELOGD_FILE_ROT_MAX  STROLL_CONCAT(CONFIG_ELOGD_ROT_MAX, U)
+#define ELOGD_FETCH_MIN     STROLL_CONCAT(CONFIG_ELOGD_FETCH_MIN, U)
+#define ELOGD_FETCH_MAX     STROLL_CONCAT(CONFIG_ELOGD_FETCH_MAX, U)
+
 #define ELOGD_SVC_MODE \
 	STROLL_CONCAT(0, CONFIG_ELOGD_SVC_MODE)
 
@@ -33,37 +53,47 @@ static gid_t elogd_gid;
 static struct {
 	const char * user;
 	const char * lock_path;
-	unsigned int kmsg_fetch;
-	unsigned int mqueue_fetch;
-	unsigned int svc_fetch;
-	mode_t       svc_mode;
-	const char * svc_group;
-	const char * dir_path;
 	const char * stat_path;
-	const char * sock_path;
+	unsigned int kmsg_fetch;
+	const char * mqueue_name;
+	unsigned int mqueue_fetch;
+	const char * dir_path;
 	const char * file_base;
 	size_t       file_len;
-	mode_t       file_mode;
 	const char * file_group;
+	mode_t       file_mode;
 	size_t       max_size;
 	unsigned int max_rot;
+	const char * sock_path;
+	const char * svc_group;
+	mode_t       svc_mode;
+	unsigned int svc_fetch;
+	bool         free_paths;
 } elogd_conf = {
-	.user         = CONFIG_ELOGD_USER,
+	.user         = compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
+	                               NULL,
+	                               CONFIG_ELOGD_USER),
 	.lock_path    = CONFIG_ELOGD_LOCK_PATH,
-	.kmsg_fetch   = CONFIG_ELOGD_KMSG_FETCH,
-	.mqueue_fetch = CONFIG_ELOGD_MQUEUE_FETCH,
-	.svc_fetch    = CONFIG_ELOGD_SVC_FETCH,
-	.svc_mode     = ELOGD_SVC_MODE,
-	.svc_group    = CONFIG_ELOGD_SVC_GROUP,
-	.dir_path     = CONFIG_ELOGD_DIR_PATH,
 	.stat_path    = CONFIG_ELOGD_STAT_PATH,
-	.sock_path    = CONFIG_ELOGD_SOCK_PATH,
+	.kmsg_fetch   = CONFIG_ELOGD_KMSG_FETCH,
+	.mqueue_name  = CONFIG_ELOGD_MQUEUE_NAME,
+	.mqueue_fetch = CONFIG_ELOGD_MQUEUE_FETCH,
+	.dir_path     = CONFIG_ELOGD_DIR_PATH,
 	.file_base    = CONFIG_ELOGD_FILE_BASE,
 	.file_len     = sizeof(CONFIG_ELOGD_FILE_BASE) - 1,
+	.file_group   = compile_choose(sizeof(CONFIG_ELOGD_FILE_GROUP) == 1,
+	                               NULL,
+	                               CONFIG_ELOGD_FILE_GROUP),
 	.file_mode    = ELOGD_FILE_MODE,
-	.file_group   = CONFIG_ELOGD_FILE_GROUP,
-	.max_size     = CONFIG_ELOGD_MAX_SIZE,
-	.max_rot      = CONFIG_ELOGD_MAX_ROT
+	.max_size     = CONFIG_ELOGD_SIZE,
+	.max_rot      = CONFIG_ELOGD_ROT_NR,
+	.sock_path    = CONFIG_ELOGD_SOCK_PATH,
+	.svc_group    = compile_choose(sizeof(CONFIG_ELOGD_SVC_GROUP) == 1,
+	                               NULL,
+	                               CONFIG_ELOGD_SVC_GROUP),
+	.svc_mode     = ELOGD_SVC_MODE,
+	.svc_fetch    = CONFIG_ELOGD_SVC_FETCH,
+	.free_paths   = false
 };
 
 #if defined(CONFIG_ELOGD_ASSERT)
@@ -84,28 +114,27 @@ static struct {
 
 #endif /* defined(CONFIG_ELOGD_ASSERT) */
 
-/* Limit maximum file size to 2GB. */
-#define ELOGD_FILE_SIZE_MIN (4096U)
-#define ELOGD_FILE_SIZE_MAX (2U << 30)
-
 #define elogd_assert_conf() \
-	elogd_assert(elogd_conf.kmsg_fetch > 0); \
-	elogd_assert(elogd_conf.mqueue_fetch > 0); \
-	elogd_assert(elogd_conf.svc_fetch > 0); \
-	elogd_assert(!(elogd_conf.svc_mode & ~DEFFILEMODE)); \
-	elogd_assert(!elogd_conf.svc_group || elogd_conf.svc_group[0]); \
-	elogd_assert(upath_validate_path_name(elogd_conf.dir_path) > 0); \
+	elogd_assert(!elogd_conf.user || elogd_conf.user[0]); \
+	elogd_assert(upath_validate_path_name(elogd_conf.lock_path) > 0); \
 	elogd_assert(upath_validate_path_name(elogd_conf.stat_path) > 0); \
-	elogd_assert(upath_validate_path_name(elogd_conf.sock_path) > 0); \
+	elogd_assert(elogd_conf.kmsg_fetch > 0); \
+	elogd_assert(umq_validate_name(elogd_conf.mqueue_name) > 0); \
+	elogd_assert(elogd_conf.mqueue_fetch > 0); \
+	elogd_assert(upath_validate_path_name(elogd_conf.dir_path) > 0); \
 	elogd_assert(elogd_conf.file_len); \
 	elogd_assert((size_t)upath_validate_file_name(elogd_conf.file_base) == \
 	             elogd_conf.file_len); \
-	elogd_assert(!(elogd_conf.file_mode & ~DEFFILEMODE)); \
 	elogd_assert(!elogd_conf.file_group || elogd_conf.file_group[0]); \
+	elogd_assert(!(elogd_conf.file_mode & ~DEFFILEMODE)); \
 	elogd_assert(elogd_conf.max_size >= ELOGD_FILE_SIZE_MIN); \
 	elogd_assert(elogd_conf.max_size <= ELOGD_FILE_SIZE_MAX); \
 	elogd_assert(elogd_conf.max_rot); \
-	elogd_assert(elogd_conf.max_rot <= 100)
+	elogd_assert(elogd_conf.max_rot <= ELOGD_FILE_ROT_MAX); \
+	elogd_assert(upath_validate_path_name(elogd_conf.sock_path) > 0); \
+	elogd_assert(!elogd_conf.svc_group || elogd_conf.svc_group[0]); \
+	elogd_assert(!(elogd_conf.svc_mode & ~DEFFILEMODE)); \
+	elogd_assert(elogd_conf.svc_fetch > 0)
 
 #define elogd_assert_tspec(_tspec) \
 	elogd_assert(_tspec); \
@@ -153,7 +182,7 @@ elogd_fill_realtime_field(char * __restrict                  head,
 	utime_gmtime_from_tspec(&tmp, tstamp);
 
 	strftime(head, 20, "%FT%T", &tmp);
-	sprintf(&head[19], ".%06ld+00:00", tstamp->tv_nsec / 1000U);
+	sprintf(&head[19], ".%06ld+00:00", tstamp->tv_nsec / 1000L);
 
 	return ELOGD_TSTAMP_FIELD_LEN;
 }
@@ -857,8 +886,9 @@ elogd_open_sigchan(struct elogd_sigchan * __restrict chan,
 	elogd_assert(chan);
 	elogd_assert(poll);
 
-	sigset_t msk = *usig_empty_msk;
-	int      err;
+	sigset_t     msk = *usig_empty_msk;
+	int          err;
+	const char * msg;
 
 	usig_addset(&msk, SIGHUP);
 	usig_addset(&msk, SIGINT);
@@ -868,13 +898,18 @@ elogd_open_sigchan(struct elogd_sigchan * __restrict chan,
 	usig_addset(&msk, SIGUSR2);
 
 	chan->fd = usig_open_fd(&msk, SFD_NONBLOCK | SFD_CLOEXEC);
-	if (chan->fd < 0)
-		return chan->fd;
+	if (chan->fd < 0) {
+		err = chan->fd;
+		msg = "open failed";
+		goto err;
+	}
 
 	chan->work.dispatch = elogd_dispatch_sigchan;
 	err = upoll_register(poll, chan->fd, EPOLLIN, &chan->work);
-	if (err)
+	if (err) {
+		msg = "cannot register poll worker";
 		goto close;
+	}
 
 	usig_procmask(SIG_SETMASK, usig_full_msk, NULL);
 
@@ -882,6 +917,11 @@ elogd_open_sigchan(struct elogd_sigchan * __restrict chan,
 
 close:
 	usig_close_fd(chan->fd);
+err:
+	elogd_err("cannot initialize signaling: %s: %s (%d).\n",
+	          msg,
+	          strerror(-err),
+	          -err);
 
 	return err;
 }
@@ -909,7 +949,19 @@ struct elogd_store {
 	char * base;
 };
 
-static int __elogd_nonull(1)
+static inline
+size_t
+elogd_store_file_name_max(void)
+{
+	/* Logging file basename length + '.' + digits + '\0' */
+	return elogd_conf.file_len +
+	       sizeof('.') +
+	       sizeof(STROLL_STRING(CONFIG_ELOGD_ROT_MAX)) - 1 +
+	       sizeof('\0');
+}
+
+static __elogd_nonull(1)
+int
 elogd_open_store_file(struct elogd_store * __restrict store)
 {
 	elogd_assert_conf();
@@ -918,11 +970,13 @@ elogd_open_store_file(struct elogd_store * __restrict store)
 	elogd_assert(upath_validate_path_name(store->base) >
 	             (ssize_t)(elogd_conf.file_len + 1));
 	elogd_assert(store->base[elogd_conf.file_len] == '.');
-	elogd_assert(store->base[(2 * elogd_conf.file_len) + 1 + 2 + 1] == '.');
+	elogd_assert(store->base[elogd_store_file_name_max() +
+	                         elogd_conf.file_len] == '.');
 
-	struct stat st;
-	int         err;
-	gid_t       gid = elogd_gid;
+	struct stat  st;
+	int          err;
+	const char * msg;
+	gid_t        gid = elogd_gid;
 
 	store->fd = ufile_new_at(store->dir,
 	                         store->base,
@@ -930,18 +984,24 @@ elogd_open_store_file(struct elogd_store * __restrict store)
 	                         O_NOFOLLOW,
 	                         elogd_conf.file_mode);
 
-	if (store->fd < 0)
-		return store->fd;
+	if (store->fd < 0) {
+		err = store->fd;
+		msg = "open failed";
+		goto err;
+	}
 
 	err = ufile_fstat(store->fd, &st);
-	if (err)
+	if (err) {
+		msg = "status retrieval failed";
 		goto close;
+	}
 	if (!S_ISREG(st.st_mode)) {
 		err = -EPERM;
+		msg = "invalid file type";
 		goto close;
 	}
 
-	if (elogd_conf.file_group && elogd_conf.file_group[0] != '\0') {
+	if (elogd_conf.file_group) {
 		err = upwd_get_gid_byname(elogd_conf.file_group, &gid);
 		if (err)
 			elogd_warn("'%s': unknown logging file group, "
@@ -950,12 +1010,16 @@ elogd_open_store_file(struct elogd_store * __restrict store)
 			           gid);
 	}
 	err = ufile_fchown(store->fd, elogd_uid, gid);
-	if (err)
+	if (err) {
+		msg = "owner / group membership setup failed";
 		goto close;
+	}
 
 	err = ufile_fchmod(store->fd, elogd_conf.file_mode);
-	if (err)
+	if (err) {
+		msg = "file mode bits setup failed";
 		goto close;
+	}
 
 	store->size = st.st_size;
 
@@ -963,8 +1027,14 @@ elogd_open_store_file(struct elogd_store * __restrict store)
 
 close:
 	ufile_close(store->fd);
-
 	store->fd = -1;
+err:
+	elogd_warn("'%s/%s': cannot instantiate logging file: %s: %s (%d).\n",
+	           elogd_conf.dir_path,
+	           store->base,
+	           msg,
+	           strerror(-err),
+	           -err);
 
 	return err;
 }
@@ -979,13 +1049,14 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 	elogd_assert(upath_validate_path_name(store->base) >
 	             (ssize_t)(elogd_conf.file_len + 1));
 	elogd_assert(store->base[elogd_conf.file_len] == '.');
-	elogd_assert(store->base[(2 * elogd_conf.file_len) + 1 + 2 + 1] == '.');
+	elogd_assert(store->base[elogd_store_file_name_max() +
+	                         elogd_conf.file_len] == '.');
 	elogd_assert(elogd_conf.max_rot > 1);
 
 	unsigned int rot = elogd_conf.max_rot - 1;
 	char *       orig = store->base;
 	size_t       len = elogd_conf.file_len + 1;
-	char *       nevv = &store->base[len + 2 + 1];
+	char *       nevv = &store->base[elogd_store_file_name_max()];
 	int          err;
 
 	err = ufile_sync(store->fd);
@@ -1035,13 +1106,7 @@ elogd_rotate_store(struct elogd_store * __restrict store)
 		           -err);
 
 	/* Open / create a new primary logging output file. */
-	err = elogd_open_store_file(store);
-	if (err)
-		elogd_warn("'%s/%s': cannot open logging file: %s (%d).\n",
-		           elogd_conf.dir_path,
-		           orig,
-		           strerror(-err),
-		           -err);
+	elogd_open_store_file(store);
 
 	/*
 	 * Finally flush parent directory to make changes visible to external
@@ -1127,17 +1192,8 @@ elogd_flush_store(struct elogd_store * __restrict store,
 	int          ret;
 
 	if (store->fd < 0) {
-		ret = elogd_open_store_file(store);
-		if (ret) {
-			elogd_warn("'%s/%s': "
-			           "cannot open logging file: %s (%d).\n",
-			           elogd_conf.dir_path,
-			           store->base,
-			           strerror(-ret),
-			           -ret);
-
+		if (elogd_open_store_file(store))
 			return;
-		}
 	}
 
 	cnt = stroll_min(elogd_queue_busy_count(queue), elogd_queue_nr(queue));
@@ -1183,29 +1239,23 @@ elogd_open_store(struct elogd_store * __restrict store)
 
 	struct statvfs stat;
 	int            err;
+	const char *   msg;
 
 	store->dir = udir_open(elogd_conf.dir_path,
 	                       O_CLOEXEC | O_NOATIME | O_NOFOLLOW);
 	if (store->dir < 0) {
-		elogd_err("'%s': cannot open logging directory: %s (%d).\n",
-		          elogd_conf.dir_path,
-		          strerror(-store->dir),
-		          -store->dir);
-		return store->dir;
+		err = store->dir;
+		msg = "open failed";
+		goto err;
 	}
 
 	if (fstatvfs(store->dir, &stat) < 0) {
 		err = -errno;
-
 		elogd_assert(err != -EBADF);
 		elogd_assert(err != -EFAULT);
 		elogd_assert(err != -EINTR);
 
-		elogd_err("'%s': "
-		          "cannot fetch logging filesystem status: %s (%d).\n",
-		          elogd_conf.dir_path,
-		          strerror(-err),
-		          -err);
+		msg = "logging filesystem status retrieval failed";
 		goto close_dir;
 	}
 
@@ -1216,7 +1266,7 @@ elogd_open_store(struct elogd_store * __restrict store)
 	 * logging output file basenames for rotation purpose.
 	 * See elogd_rotate_store().
 	 */
-	store->base = malloc(2 * (elogd_conf.file_len + 1 + 2 + 1));
+	store->base = malloc(2 * elogd_store_file_name_max());
 	if (!store->base) {
 		err = -errno;
 		goto close_dir;
@@ -1227,19 +1277,12 @@ elogd_open_store(struct elogd_store * __restrict store)
 	store->base[elogd_conf.file_len + 1] = '0';
 	store->base[elogd_conf.file_len + 2] = '\0';
 
-	memcpy(&store->base[elogd_conf.file_len + 1 + 2 + 1],
+	memcpy(&store->base[elogd_store_file_name_max()],
 	       elogd_conf.file_base,
 	       elogd_conf.file_len);
-	store->base[elogd_conf.file_len + 1 + 2 + 1 +
-	            elogd_conf.file_len] = '.';
+	store->base[elogd_store_file_name_max() + elogd_conf.file_len] = '.';
 
-	err = elogd_open_store_file(store);
-	if (err)
-		elogd_warn("'%s/%s': cannot open logging file: %s (%d).\n",
-		           elogd_conf.dir_path,
-		           store->base,
-		           strerror(-err),
-		           -err);
+	elogd_open_store_file(store);
 
 	elogd_conf.max_size = stroll_min(elogd_conf.max_size / stat.f_frsize,
 	                                 stat.f_blocks / elogd_conf.max_rot);
@@ -1252,6 +1295,12 @@ elogd_open_store(struct elogd_store * __restrict store)
 
 close_dir:
 	udir_close(store->dir);
+err:
+	elogd_err("cannot initialize logging store: '%s': %s: %s (%d).\n",
+	          elogd_conf.dir_path,
+	          msg,
+	          strerror(-err),
+	          -err);
 
 	return err;
 }
@@ -1368,8 +1417,8 @@ elogd_parse_kmsg_tstamp(struct elogd_line * __restrict line,
 	if (!len || (len > 20) || (*end != ','))
 		return NULL;
 
-	tstamp->tv_sec = val / 1000000UL;
-	tstamp->tv_nsec = (val % 1000000UL) * 1000UL;
+	tstamp->tv_sec = (time_t)(val / 1000000UL);
+	tstamp->tv_nsec = (long)((val % 1000000UL) * 1000UL);
 
 	/* Skip ',' separator. */
 	return &string[len + 1];
@@ -1416,8 +1465,8 @@ elogd_parse_kmsg_tstamp(struct elogd_line * __restrict line,
 	if (!len || (len > 20) || (*end != ','))
 		return NULL;
 
-	tstamp->tv_sec = val / 1000000ULL;
-	tstamp->tv_nsec = (val % 1000000ULL) * 1000ULL;
+	tstamp->tv_sec = (time_t)(val / 1000000ULL);
+	tstamp->tv_nsec = (long)((val % 1000000ULL) * 1000ULL);
 
 	/* Skip ',' separator. */
 	return &string[len + 1];
@@ -1680,27 +1729,34 @@ elogd_open_kmsg_stat(struct elogd_kmsg * __restrict kmsg)
 	elogd_assert_conf();
 	elogd_assert(kmsg);
 
-	int         fd;
-	struct stat st;
-	int         err;
-	uint64_t *  seqno;
+	int          fd;
+	int          err;
+	struct stat  st;
+	const char * msg;
+	uint64_t *   seqno;
 
 	fd = ufile_new(elogd_conf.stat_path,
 	               O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NOATIME,
 	               S_IRUSR | S_IWUSR);
 	if (fd < 0) {
 		elogd_assert(fd != -EINTR);
-		return fd;
+		err = fd;
+		msg = "open failed";
+		goto err;
 	}
 
 	err = ufile_fstat(fd, &st);
-	if (err)
+	if (err) {
+		msg = "status retrieval failed";
 		goto close;
+	}
 
 	if (!S_ISREG(st.st_mode) ||
 	    ((st.st_mode & (S_IRUSR | S_IWUSR)) != (S_IRUSR | S_IWUSR)) ||
-	    (st.st_uid != elogd_uid) || (st.st_gid != elogd_gid)) {
+	    (st.st_uid != elogd_uid) ||
+	    (st.st_gid != elogd_gid)) {
 		err = -EPERM;
+		msg = "unexpected file attributes";
 		goto close;
 	}
 
@@ -1712,6 +1768,7 @@ elogd_open_kmsg_stat(struct elogd_kmsg * __restrict kmsg)
 	err = ufile_ftruncate(fd, sizeof(*kmsg->seqno));
 	if (err) {
 		elogd_assert(err != -EINTR);
+		msg = "truncate failed";
 		goto close;
 	}
 
@@ -1723,11 +1780,11 @@ elogd_open_kmsg_stat(struct elogd_kmsg * __restrict kmsg)
 	             0);
 	if (seqno == MAP_FAILED) {
 		err = -errno;
-
 		elogd_assert(err != -EBADF);
 		elogd_assert(err != -EINVAL);
 		elogd_assert(err != -EOVERFLOW);
 
+		msg = "mmap failed";
 		goto close;
 	}
 
@@ -1738,6 +1795,12 @@ elogd_open_kmsg_stat(struct elogd_kmsg * __restrict kmsg)
 
 close:
 	ufile_close(fd);
+err:
+	elogd_err("'%s': %s: %s (%d).\n",
+	          elogd_conf.stat_path,
+	          msg,
+	          strerror(-err),
+	          -err);
 
 	return err;
 }
@@ -1751,8 +1814,9 @@ elogd_open_kmsg(struct elogd_kmsg * __restrict  kmsg,
 	elogd_assert(queue);
 	elogd_assert(poll);
 
-	int fd;
-	int err;
+	int          fd;
+	int          err;
+	const char * msg;
 
 	/*
 	 * This will require CAP_SYSLOG or CAP_SYS_ADMIN capability if kernel is
@@ -1761,20 +1825,27 @@ elogd_open_kmsg(struct elogd_kmsg * __restrict  kmsg,
 	fd = ufd_open("/dev/kmsg",
 	              O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NOFOLLOW |
 	              O_NONBLOCK);
-	if (fd < 0)
-		return fd;
+	if (fd < 0) {
+		err = fd;
+		msg = "'/dev/kmsg': open failed";
+		goto err;
+	}
 
 	err = elogd_open_kmsg_stat(kmsg);
-	if (err)
+	if (err) {
+		msg = "cannot retrieve message sequence";
 		goto close_dev;
+	}
 
 	kmsg->work.dispatch = elogd_dispatch_kmsg;
 	err = upoll_register(poll,
 	                     fd,
 	                     EPOLLIN,
 	                     &kmsg->work);
-	if (err)
+	if (err) {
+		msg = "cannot register poll worker";
 		goto close_stat;
+	}
 
 	err = ufd_lseek(fd, 0, SEEK_DATA);
 	elogd_assert(!err);
@@ -1784,8 +1855,10 @@ elogd_open_kmsg(struct elogd_kmsg * __restrict  kmsg,
 
 	if (*kmsg->seqno) {
 		err = elogd_skip_init_kmsg(kmsg);
-		if (err)
+		if (err) {
+			msg = "cannot skip outdated messages";
 			goto close_poll;
+		}
 	}
 
 	return 0;
@@ -1797,6 +1870,11 @@ close_stat:
 	ufile_close(kmsg->stat_fd);
 close_dev:
 	ufd_close(fd);
+err:
+	elogd_err("cannot initialize kernel ring-buffer: %s: %s (%d).\n",
+	          msg,
+	          strerror(-err),
+	          -err);
 
 	return err;
 }
@@ -2152,37 +2230,46 @@ elogd_open_svc(struct elogd_svc * __restrict   svc,
 	elogd_assert(queue);
 	elogd_assert(poll);
 
-	int    err;
-	mode_t msk;
-	gid_t  gid = elogd_gid;
+	int          err;
+	const char * msg;
+	mode_t       msk;
+	gid_t        gid = elogd_gid;
 
 	err = unsk_dgram_svc_open(&svc->unsk, SOCK_NONBLOCK | SOCK_CLOEXEC);
-	if (err)
-		return err;
+	if (err) {
+		msg = "open failed";
+		goto err;
+	}
 
 	msk = umask(ALLPERMS & ~elogd_conf.svc_mode);
 	err = unsk_svc_bind(&svc->unsk, elogd_conf.sock_path);
 	umask(msk);
-	if (err)
+	if (err) {
+		msg = "bind failed";
 		goto close;
+	}
 
 	if (elogd_conf.svc_group) {
 		err = upwd_get_gid_byname(elogd_conf.svc_group, &gid);
 		if (err)
-			elogd_warn("'%s': invalid logging socket group, "
+			elogd_warn("'%s': unknown logging socket group, "
 			           "using default GID %d.\n",
 			           elogd_conf.svc_group,
 			           gid);
 	}
 
 	err = upath_chown(elogd_conf.sock_path, elogd_uid, gid);
-	if (err)
+	if (err) {
+		msg = "owner / group membership setup failed";
 		goto close;
+	}
 
 	svc->work.dispatch = elogd_dispatch_svc;
 	err = upoll_register(poll, svc->unsk.fd, EPOLLIN, &svc->work);
-	if (err)
+	if (err) {
+		msg = "cannot register poll worker";
 		goto close;
+	}
 
 	svc->queue = queue;
 
@@ -2190,6 +2277,12 @@ elogd_open_svc(struct elogd_svc * __restrict   svc,
 
 close:
 	unsk_svc_close(&svc->unsk);
+err:
+	elogd_err("cannot initialize syslog socket: '%s': %s: %s (%d).\n",
+	          elogd_conf.sock_path,
+	          msg,
+	          strerror(-err),
+	          -err);
 
 	return err;
 }
@@ -2371,39 +2464,51 @@ elogd_open_mqueue(struct elogd_mqueue * __restrict mqueue,
                   struct elogd_queue * __restrict  lines,
                   const struct upoll * __restrict  poll)
 {
+	elogd_assert_conf();
 	elogd_assert(mqueue);
 	elogd_assert(lines);
 	elogd_assert(poll);
 
 	int            fd;
 	int            err;
+	const char *   msg;
 	struct mq_attr attr;
 	struct stat    st;
 
-	fd = umq_open("/init", O_RDONLY | O_CLOEXEC | O_NONBLOCK);
-	if (fd < 0)
-		return fd;
+	fd = umq_open(elogd_conf.mqueue_name,
+	              O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+	if (fd < 0) {
+		err = fd;
+		msg = "open failed";
+		goto err;
+	}
 
 	err = ufd_fstat(fd, &st);
-	if (err)
+	if (err) {
+		msg = "status retrieval failed";
 		goto close;
+	}
 
 	if (((st.st_mode & (ALLPERMS & ~(S_IRUSR | S_IWUSR))) != S_IRGRP) ||
 	    (st.st_uid != 0)) {
 		err = -EPERM;
+		msg = "unexpected file attributes";
 		goto close;
 	}
 
 	umq_getattr(fd, &attr);
 	if ((attr.mq_maxmsg < 1) || (attr.mq_msgsize < (long)ELOG_LINE_MAX)) {
 		err = -EPERM;
+		msg = "invalid message size capacity";
 		goto close;
 	}
 
 	mqueue->work.dispatch = elogd_dispatch_mqueue;
 	err = upoll_register(poll, fd, EPOLLIN, &mqueue->work);
-	if (err)
+	if (err) {
+		msg = "cannot register poll worker";
 		goto close;
+	}
 
 	mqueue->fd = fd;
 	mqueue->lines = lines;
@@ -2412,6 +2517,12 @@ elogd_open_mqueue(struct elogd_mqueue * __restrict mqueue,
 
 close:
 	umq_close(fd);
+err:
+	elogd_err("cannot initialize message queue: '%s': %s: %s (%d).\n",
+	          elogd_conf.mqueue_name,
+	          msg,
+	          strerror(-err),
+	          -err);
 
 	return err;
 }
@@ -2442,20 +2553,37 @@ static struct elog_stdio_conf elogd_stdlog_conf = {
 static int
 elogd_lock(void)
 {
-	int fd;
+	int          fd;
+	int          err;
+	const char * msg;
 
 	fd = ufile_new(elogd_conf.lock_path,
 	               O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NOFOLLOW,
 	               S_IRUSR);
-	if (fd < 0)
-		return fd;
+	if (fd < 0) {
+		err = fd;
+		msg = "open failed";
+		goto err;
+	}
 
 	if (flock(fd, LOCK_EX | LOCK_NB)) {
-		ufile_close(fd);
-		return -errno;
+		err = -errno;
+		msg = "lock failed";
+		goto close;
 	}
 
 	return fd;
+
+close:
+	ufile_close(fd);
+err:
+	elogd_err("cannot acquire lock file: '%s': %s: %s (%d).\n",
+	          elogd_conf.lock_path,
+	          msg,
+	          strerror(-err),
+	          -err);
+
+	return err;
 }
 
 static void
@@ -2469,20 +2597,28 @@ elogd_unlock(int fd)
 static void
 elogd_drop_caps(void)
 {
-	int err;
+	int          err;
+	const char * msg;
 
 	err = enbox_lock_caps();
-	if (err)
+	if (err) {
+		msg = "lock failed";
 		goto err;
+	}
 
 	err = enbox_clear_bounding_caps();
-	if (err)
+	if (err) {
+		msg = "bounding caps clear failed";
 		goto err;
+	}
 
 	return;
 
 err:
-	elogd_err("cannot drop capabilities: %s (%d).\n", strerror(-err), -err);
+	elogd_err("cannot drop capabilities: %s: %s (%d).\n",
+	          msg,
+	          strerror(-err),
+	          -err);
 
 	exit(EXIT_FAILURE);
 }
@@ -2493,28 +2629,345 @@ err:
 "\n" \
 "With OPTIONS:\n" \
 "    -u|--user USER        -- run as USER system user\n" \
+"                             (defaults to %2$s)\n" \
 "    -l|--lock-path PATH   -- use PATH as pathname to lock file\n" \
-"    -s|--stat-path PATH   -- use PATH as pathname to private status file\n" \
+"                             (defaults to `" CONFIG_ELOGD_LOCK_PATH "')\n" \
 "    -o|--log-path PATH    -- use PATH as pathname to output logging files\n" \
-"    -z|--log-size SIZE    -- restrict output logging files size to SIZE bytes\n" \
-"    -r|--log-rotate COUNT -- rotate up to COUNT output logging files\n" \
+"                             (defaults to `" CONFIG_ELOGD_DIR_PATH "/" CONFIG_ELOGD_FILE_BASE "')\n" \
 "    -e|--log-group GROUP  -- set output logging files group membership to GROUP\n" \
+"                             (defaults to %3$s)\n" \
 "    -m|--log-mode MODE    -- set output logging files file mode bits to MODE\n" \
-"    -p|--sock-path PATH   -- use PATH as pathname to syslog socket file\n" \
-"    -s|--sock-group GROUP -- set syslog socket file group membership to GROUP\n" \
-"    -c|--sock-mode MODE   -- set syslog socket file mode bits to MODE\n" \
-"    -f|--sock-fetch COUNT -- set maximum number of messages to fetch from\n" \
-"                             syslog socket to COUNT in a row\n" \
+"                             (defaults to 0" STROLL_STRING(CONFIG_ELOGD_FILE_MODE) ")\n" \
+"    -z|--log-size SIZE    -- restrict output logging files size to SIZE bytes\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_SIZE_MIN) " <= SIZE <= " STROLL_STRING(CONFIG_ELOGD_SIZE_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SIZE) " bytes)\n" \
+"    -r|--log-rotate COUNT -- rotate up to COUNT output logging files with\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_ROT_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_ROT_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_ROT_NR) ")\n" \
+"    -s|--stat-path PATH   -- use PATH as pathname to private status file\n" \
+"                             (defaults to `" CONFIG_ELOGD_STAT_PATH "')\n" \
 "    -k|--kern-fetch COUNT -- set maximum number of messages to fetch from\n" \
-"                             kernel ring-buffer to COUNT in a row\n" \
+"                             kernel ring-buffer to COUNT in a row with\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_KMSG_FETCH) ")\n" \
+"    -n|--mq-name NAME     -- use NAME as shared message queue name\n" \
+"                             (defaults to `" CONFIG_ELOGD_MQUEUE_NAME "')\n" \
 "    -q|--mq-fetch COUNT   -- set maximum number of messages to fetch from\n" \
-"                             shared message queue to COUNT in a row\n" \
+"                             shared message queue to COUNT in a row with\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_MQUEUE_FETCH) ")\n" \
+"    -p|--sock-path PATH   -- use PATH as pathname to syslog socket file\n" \
+"                             (defaults to `" CONFIG_ELOGD_SOCK_PATH "')\n" \
+"    -b|--sock-group GROUP -- set syslog socket file group membership to GROUP\n" \
+"                             (defaults to %4$s)\n" \
+"    -c|--sock-mode MODE   -- set syslog socket file mode bits to MODE\n" \
+"                             (defaults to 0" STROLL_STRING(CONFIG_ELOGD_SVC_MODE) ")\n" \
+"    -f|--sock-fetch COUNT -- set maximum number of messages to fetch from\n" \
+"                             syslog socket to COUNT in a row with\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SVC_FETCH) ")\n" \
 "    -h|--help             -- this help message\n"
 
 static void
 show_usage(void)
 {
-	fprintf(stderr, USAGE, program_invocation_short_name);
+	fprintf(stderr,
+	        USAGE,
+	        program_invocation_short_name,
+	        compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
+	                       "current user",
+	                       "`" CONFIG_ELOGD_USER "'"),
+	        compile_choose(sizeof(CONFIG_ELOGD_FILE_GROUP) == 1,
+	                       "current group",
+	                       "`" CONFIG_ELOGD_FILE_GROUP "'"),
+	        compile_choose(sizeof(CONFIG_ELOGD_SVC_GROUP) == 1,
+	                       "current group",
+	                       "`" CONFIG_ELOGD_SVC_GROUP "'"));
+}
+
+static __elogd_nonull(1)
+int
+elogd_parse_user_name(const char * __restrict name)
+{
+	elogd_assert(name);
+
+	if (name) {
+		ssize_t ret;
+
+		ret = upwd_validate_user_name(name);
+		if (ret < 0) {
+			elogd_err("invalid daemon user name: %s (%d).\n",
+			          strerror((int)-ret),
+			          (int)-ret);
+			return EXIT_FAILURE;
+		}
+
+		elogd_conf.user = optarg;
+	}
+	else
+		elogd_conf.user = NULL;
+
+	return EXIT_SUCCESS;
+}
+
+static __elogd_nonull(1, 2, 3)
+int
+elogd_parse_path(const char * __restrict  arg,
+                 const char * __restrict  kind,
+                 const char ** __restrict path)
+{
+	elogd_assert(arg);
+	elogd_assert(kind);
+	elogd_assert(path);
+
+	ssize_t ret;
+
+	ret = upath_validate_path_name(arg);
+	if (ret < 0) {
+		elogd_err("invalid %s pathname: %s (%d).\n",
+		          kind,
+		          strerror((int)-ret),
+		          (int)-ret);
+		return EXIT_FAILURE;
+	}
+
+	*path = arg;
+
+	return EXIT_SUCCESS;
+}
+
+static __elogd_nonull(1, 2, 3)
+int
+elogd_parse_fetch_count(const char * __restrict   arg,
+                        const char * __restrict   kind,
+                        unsigned int * __restrict count)
+{
+	elogd_assert(arg);
+	elogd_assert(kind);
+	elogd_assert(count);
+
+	int err;
+
+	err = ustr_parse_uint_range(arg,
+	                            count,
+	                            ELOGD_FETCH_MIN,
+	                            ELOGD_FETCH_MAX);
+	if (err) {
+		elogd_err("invalid %s fetch count: %s (%d).\n",
+		          kind,
+		          strerror(-err),
+		          -err);
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
+}
+
+static __elogd_nonull(1)
+int
+elogd_parse_mqueue_name(const char * __restrict  arg)
+{
+	elogd_assert(arg);
+
+	ssize_t ret;
+
+	ret = umq_validate_name(arg);
+	if (ret < 0) {
+		elogd_err("invalid message queue name: %s (%d).\n",
+		          strerror((int)-ret),
+		          (int)-ret);
+		return EXIT_FAILURE;
+	}
+
+	elogd_conf.mqueue_name = arg;
+
+	return EXIT_SUCCESS;
+}
+
+static
+void
+elogd_free_logfile_paths(void)
+{
+	if (elogd_conf.free_paths) {
+		free((char *)elogd_conf.dir_path);
+		free((char *)elogd_conf.file_base);
+	}
+}
+
+static __elogd_nonull(1)
+int
+elogd_parse_log_path(const char * __restrict path)
+{
+	elogd_assert(path);
+
+	ssize_t ret;
+	char *  tmp;
+	char *  dir;
+	char *  base;
+
+	ret = upath_validate_path_name(path);
+	if (ret < 0) {
+		elogd_err("invalid output logging pathname: %s (%d).\n",
+		          strerror((int)-ret),
+		          (int)-ret);
+		return EXIT_FAILURE;
+	}
+
+	/* dirname() may modify its argument content... */
+	tmp = strdup(path);
+	if (!tmp)
+		return EXIT_FAILURE;
+
+	/*
+	 * dirname() may return pointer to statically allocated memory which
+	 * may be overwritten by subsequent calls: make a copy of it.
+	 */
+	dir = dirname(tmp);
+	elogd_assert(dir);
+	elogd_assert(dir[0]);
+	dir = strdup(dir);
+	if (!dir)
+		goto free_tmp;
+
+	/*
+	 * GNU version of basename() may return pointer to statically allocated
+	 * memory which may be overwritten by subsequent calls: make a copy of
+	 * it.
+	 * In addition, it returns the empty string when given argument has a
+	 * trailing slash '/'.
+	 */
+	base = basename(path);
+	ret = strlen(base);
+	if (!ret) {
+		elogd_err("invalid output logging pathname: empty basename.\n");
+		goto free_dir;
+	}
+	elogd_assert(!((base[0] == '.') && (base[1] == '\0')));
+
+	base = strdup(base);
+	if (!base)
+		goto free_dir;
+
+	elogd_conf.dir_path = dir;
+	elogd_conf.file_base = base;
+	elogd_conf.file_len = (size_t)ret;
+	elogd_conf.free_paths = true;
+
+	free(tmp);
+
+	return EXIT_SUCCESS;
+
+free_dir:
+	free(dir);
+
+free_tmp:
+	free(tmp);
+
+	return EXIT_FAILURE;
+}
+
+static __elogd_nonull(2, 3)
+int
+elogd_parse_group_name(const char * __restrict  arg,
+                       const char * __restrict  kind,
+                       const char ** __restrict name)
+{
+	elogd_assert(kind);
+	elogd_assert(name);
+
+	if (arg) {
+		ssize_t ret;
+
+		ret = upwd_validate_group_name(arg);
+		if (ret < 0) {
+			elogd_err("invalid %s group name: %s (%d).\n",
+			          kind,
+			          strerror((int)-ret),
+			          (int)-ret);
+			return EXIT_FAILURE;
+		}
+
+		*name = arg;
+	}
+	else
+		*name = NULL;
+
+	return EXIT_SUCCESS;
+}
+
+static __elogd_nonull(1)
+int
+elogd_parse_log_size(const char * __restrict size)
+{
+	elogd_assert(size);
+
+	unsigned int sz;
+	int          err;
+
+	err = ustr_parse_uint_range(size,
+	                            &sz,
+	                            ELOGD_FILE_SIZE_MIN,
+	                            ELOGD_FILE_SIZE_MAX);
+	if (err) {
+		elogd_err("invalid output logging file size: %s (%d).\n",
+		          strerror(-err),
+		          -err);
+		return EXIT_FAILURE;
+	}
+
+	elogd_conf.max_size = (size_t)sz;
+
+	return EXIT_SUCCESS;
+}
+
+static __elogd_nonull(1)
+int
+elogd_parse_log_rot(const char * __restrict count)
+{
+	elogd_assert(count);
+
+	int err;
+
+	err = ustr_parse_uint_range(count,
+	                            &elogd_conf.max_rot,
+	                            ELOGD_FILE_ROT_MIN,
+	                            ELOGD_FILE_ROT_MAX);
+	if (err) {
+		elogd_err("invalid output logging file rotation count: "
+		          "%s (%d).\n",
+		          strerror(-err),
+		          -err);
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
+}
+
+static __elogd_nonull(1, 2, 3)
+int
+elogd_parse_mode(const char * __restrict arg,
+                 const char * __restrict kind,
+                 mode_t * __restrict     mode)
+{
+	elogd_assert(arg);
+	elogd_assert(kind);
+	elogd_assert(mode);
+
+	mode_t bits;
+	int    err;
+
+	err = upath_parse_mode(arg, &bits);
+	if (err) {
+		elogd_err("invalid %s mode bits: %s (%d).\n",
+		          kind,
+		          strerror(-err),
+		          -err);
+		return EXIT_FAILURE;
+	}
+
+	*mode = bits & DEFFILEMODE;
+
+	return EXIT_SUCCESS;
 }
 
 int
@@ -2529,59 +2982,131 @@ main(int argc, char * const argv[])
 	struct elogd_kmsg    kmsg;
 	struct elogd_svc     svc;
 	struct elogd_mqueue  mqueue;
-	const char *         msg;
 	int                  stat = EXIT_FAILURE;
 
 	while (true) {
 		static const struct option opts[] = {
-			{ "user",        required_argument, NULL, 'u' },
-			{ "lock-path",   required_argument, NULL, 'l' },
-			{ "log-group",   optional_argument, NULL, 'e' },
-			{ "log-path",    required_argument, NULL, 'o' },
-			{ "help",        no_argument,       NULL, 'h' },
-			{ NULL,          0,                 NULL, 0 }
+			{ "user",       optional_argument, NULL, 'u' },
+			{ "lock-path",  required_argument, NULL, 'l' },
+			{ "stat-path",  required_argument, NULL, 's' },
+			{ "kern-fetch", required_argument, NULL, 'k' },
+			{ "mq-name",    required_argument, NULL, 'n' },
+			{ "mq-fetch",   required_argument, NULL, 'q' },
+			{ "log-path",   required_argument, NULL, 'o' },
+			{ "log-group",  optional_argument, NULL, 'e' },
+			{ "log-mode",   required_argument, NULL, 'm' },
+			{ "log-size",   required_argument, NULL, 'z' },
+			{ "log-rotate", required_argument, NULL, 'r' },
+			{ "sock-path",  required_argument, NULL, 'p' },
+			{ "sock-group", optional_argument, NULL, 'b' },
+			{ "sock-mode",  required_argument, NULL, 'c' },
+			{ "sock-fetch", required_argument, NULL, 'f' },
+			{ "help",       no_argument,       NULL, 'h' },
+			{ NULL,         0,                 NULL, 0 }
 		};
 
-		err = getopt_long(argc, argv, ":u:l:e::o:h", opts, NULL);
+		err = getopt_long(argc,
+		                  argv,
+		                  ":u::l:s:k:n:q:o:e::m:z:r:p:b::c:f:h",
+		                  opts,
+		                  NULL);
 		if (err < 0)
 			break;
 
 		switch (err) {
 		case 'u':
-			if (upwd_validate_user_name(optarg) < 0) {
-				elogd_err("invalid daemon user name.\n");
+			if (elogd_parse_user_name(optarg))
 				return EXIT_FAILURE;
-			}
-			elogd_conf.user = optarg;
-			break;
-
-		case 'e':
-			if (optarg) {
-				if (upwd_validate_group_name(optarg) < 0) {
-					elogd_err("invalid logging file group name.\n");
-					return EXIT_FAILURE;
-				}
-				elogd_conf.file_group = optarg;
-			}
-			else
-				elogd_conf.file_group = NULL;
 			break;
 
 		case 'l':
-			if (upath_validate_file_name(optarg) < 0) {
-				elogd_err("invalid lock file pathname.\n");
+			if (elogd_parse_path(optarg,
+			                     "lock file",
+			                     &elogd_conf.lock_path))
 				return EXIT_FAILURE;
-			}
-			elogd_conf.lock_path = optarg;
+			break;
+
+		case 's':
+			if (elogd_parse_path(optarg,
+			                     "private status file",
+			                     &elogd_conf.stat_path))
+				return EXIT_FAILURE;
+			break;
+
+		case 'k':
+			if (elogd_parse_fetch_count(optarg,
+			                            "kernel ring-buffer",
+			                            &elogd_conf.kmsg_fetch))
+				return EXIT_FAILURE;
+			break;
+
+		case 'n':
+			if (elogd_parse_mqueue_name(optarg))
+				return EXIT_FAILURE;
+			break;
+
+		case 'q':
+			if (elogd_parse_fetch_count(optarg,
+			                            "message queue",
+			                            &elogd_conf.mqueue_fetch))
+				return EXIT_FAILURE;
 			break;
 
 		case 'o':
-			if (upath_validate_path_name(optarg) < 0) {
-				elogd_err("invalid output logging "
-				          "directory pathname.\n");
+			if (elogd_parse_log_path(optarg))
 				return EXIT_FAILURE;
-			}
-			elogd_conf.dir_path = optarg;
+			break;
+
+		case 'e':
+			if (elogd_parse_group_name(optarg,
+			                           "output logging file",
+			                           &elogd_conf.file_group))
+				return EXIT_FAILURE;
+			break;
+
+		case 'm':
+			if (elogd_parse_mode(optarg,
+			                     "output logging file",
+			                     &elogd_conf.file_mode))
+				return EXIT_FAILURE;
+			break;
+
+		case 'z':
+			if (elogd_parse_log_size(optarg))
+				return EXIT_FAILURE;
+			break;
+
+		case 'r':
+			if (elogd_parse_log_rot(optarg))
+				return EXIT_FAILURE;
+			break;
+
+		case 'p':
+			if (elogd_parse_path(optarg,
+			                     "syslog socket file",
+			                     &elogd_conf.sock_path))
+				return EXIT_FAILURE;
+			break;
+
+		case 'b':
+			if (elogd_parse_group_name(optarg,
+			                           "syslog socket file",
+			                           &elogd_conf.svc_group))
+				return EXIT_FAILURE;
+			break;
+
+		case 'c':
+			if (elogd_parse_mode(optarg,
+			                     "syslog socket file",
+			                     &elogd_conf.svc_mode))
+				return EXIT_FAILURE;
+			break;
+
+		case 'f':
+			if (elogd_parse_fetch_count(optarg,
+			                            "syslog socket",
+			                            &elogd_conf.svc_fetch))
+				return EXIT_FAILURE;
 			break;
 
 		case 'h':
@@ -2589,6 +3114,10 @@ main(int argc, char * const argv[])
 			return EXIT_SUCCESS;
 
 		case ':':
+			elogd_err("option '%s' requires an argument.\n\n",
+			          argv[optind - 1]);
+			goto usage;
+
 		case '?':
 			elogd_err("unrecognized option '%s'.\n\n",
 			          argv[optind - 1]);
@@ -2609,13 +3138,13 @@ main(int argc, char * const argv[])
 
 	elog_init_stdio(&elogd_stdlog, &elogd_stdlog_conf);
 	enbox_setup((struct elog *)&elogd_stdlog);
-	//elogd_drop_caps();
-	//enbox_change_ids(elogd_conf.user, ENBOX_RAISE_SUPP_GROUPS);
+	elogd_drop_caps();
+	if (elogd_conf.user)
+		enbox_change_ids(elogd_conf.user, ENBOX_RAISE_SUPP_GROUPS);
 
 	lck = elogd_lock();
 	if (lck < 0) {
 		err = lck;
-		msg = "cannot acquire lock file";
 		goto out;
 	}
 
@@ -2626,47 +3155,37 @@ main(int argc, char * const argv[])
 	                       elogd_conf.kmsg_fetch +
 	                       elogd_conf.mqueue_fetch +
 	                       elogd_conf.svc_fetch);
-	if (err) {
-		msg = "cannot initialize queueing";
+	if (err)
 		goto unlock;
-	}
 
 	err = upoll_open(&poll, 4);
 	if (err) {
-		msg = "cannot initialize polling";
+		elogd_err("cannot initialize polling: %s (%d).\n",
+		          strerror(-err),
+		          -err);
 		goto fini_queue;
 	}
 
 	err = elogd_open_sigchan(&sigs, &poll);
-	if (err) {
-		msg = "cannot initialize signaling";
+	if (err)
 		goto close_poll;
-	}
 
 	err = elogd_open_store(&store);
-	if (err) {
-		msg = "cannot initialize logging store";
+	if (err)
 		goto close_sigs;
-	}
 
 #warning Fix /dev/kmsg perms
 	err = elogd_open_kmsg(&kmsg, &queue, &poll);
-	if (err) {
-		msg = "cannot initialize kernel ring-buffer";
+	if (err)
 		goto close_store;
-	}
 
 	err = elogd_open_svc(&svc, &queue, &poll);
-	if (err) {
-		msg = "cannot initialize syslog socket";
+	if (err)
 		goto close_kmsg;
-	}
 
 	err = elogd_open_mqueue(&mqueue, &queue, &poll);
-	if (err) {
-		msg = "cannot initialize init message queue";
+	if (err)
 		goto close_svc;
-	}
 
 	do {
 		err = upoll_process(&poll, -1);
@@ -2700,14 +3219,11 @@ fini_queue:
 unlock:
 	elogd_unlock(lck);
 out:
-	if (stat != EXIT_SUCCESS) {
-		elogd_assert(err < 0);
-		elogd_err("%s: %s (%d).\n", msg, strerror(-err), -err);
-	}
-
+	elogd_free_logfile_paths();
 	return stat;
 
 usage:
+	elogd_free_logfile_paths();
 	show_usage();
 	return EXIT_FAILURE;
 }
