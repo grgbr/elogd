@@ -13,16 +13,6 @@ config ELOGD_STDLOG_SEVERITY
 	  be sent to standard I/O logger.
 	  See syslog(3) levels for more informations about available severities.
 
-config ELOGD_STDLOG_FORMAT
-	hex "STDIO logger format"
-	range 0 0x1f
-	default 0x10
-	help
-	  Internal elogd daemon messages sent to standard I/O logger will be
-	  logged according to this format.
-	  See eLog library's header elog_format enum for more informations about
-	  available format flags.
-
 config ELOGD_USER
 	string "runtime user name"
 	default "elogd"
@@ -132,7 +122,7 @@ config ELOGD_SIZE_MIN
 
 config ELOGD_SIZE_MAX
 	int
-	default 2147483648
+	default 2147483647
 
 config ELOGD_SIZE
 	int "Logging output file size"
