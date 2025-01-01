@@ -235,7 +235,8 @@ elogd_real_boot_time(struct timespec * __restrict tspec)
 	utime_tspec_sub(tspec, &boot);
 }
 
-static const char * __elogd_nonull(1, 3, 4)
+static __elogd_nonull(1, 3, 4) __elogd_nothrow
+const char *
 elogd_parse_prio(const char * __restrict string,
                  int                     separator,
                  int * __restrict        facility,
@@ -337,7 +338,7 @@ struct elogd_line {
 	char                     data[ELOGD_LINE_MAX_LEN + 1];
 };
 
-#define elog_assert_line_head(_line, _iovec) \
+#define elogd_assert_line_head(_line, _iovec) \
 	elogd_assert((_iovec)[ELOGD_LINE_HEAD_IOVEC].iov_len <= \
 	             sizeof((_line)->head)); \
 	elogd_assert((char *)(_iovec)[ELOGD_LINE_HEAD_IOVEC].iov_base >= \
@@ -345,7 +346,7 @@ struct elogd_line {
 	elogd_assert((char *)(_iovec)[ELOGD_LINE_HEAD_IOVEC].iov_base < \
 	             &(_line)->head[sizeof((_line)->head)])
 
-#define elog_assert_line_msg(_line, _iovec) \
+#define elogd_assert_line_msg(_line, _iovec) \
 	elogd_assert((_iovec)[ELOGD_LINE_MSG_IOVEC].iov_len); \
 	elogd_assert((_iovec)[ELOGD_LINE_MSG_IOVEC].iov_len < \
 	             sizeof((_line)->data)); \
@@ -354,16 +355,22 @@ struct elogd_line {
 	elogd_assert((char *)(_iovec)[ELOGD_LINE_MSG_IOVEC].iov_base < \
 	             &(_line)->data[sizeof((_line)->data)])
 
-#define elog_assert_queued_line(_line) \
+#define elogd_assert_queued_line(_line) \
 	elogd_assert(!((_line)->severity & ~LOG_PRIMASK)); \
 	elogd_assert(!((_line)->facility & ~LOG_FACMASK)); \
-	elog_assert_line_msg(_line, (_line)->vector)
+	elogd_assert_line_msg(_line, (_line)->vector)
+
+static struct elogd_line * __elogd_nonull(1) __elogd_pure
+elogd_line_from_node(const struct stroll_dlist_node * __restrict node)
+{
+	return stroll_dlist_entry(node, struct elogd_line, node);
+}
 
 static void __elogd_nonull(1)
 elogd_fixup_partial_line(struct elogd_line * __restrict line, size_t written)
 {
-	elog_assert_queued_line(line);
-	elog_assert_line_head(line, line->vector);
+	elogd_assert_queued_line(line);
+	elogd_assert_line_head(line, line->vector);
 	elogd_assert(written);
 	elogd_assert(written < (line->vector[ELOGD_LINE_HEAD_IOVEC].iov_len +
 	                        line->vector[ELOGD_LINE_MSG_IOVEC].iov_len));
@@ -386,7 +393,7 @@ elogd_fulfill_line(struct elogd_line * __restrict     line,
                    struct iovec                       vector[__restrict_arr 2])
 {
 	elogd_assert(line);
-	elog_assert_line_msg(line, line->vector);
+	elogd_assert_line_msg(line, line->vector);
 	elogd_assert_tspec(boot);
 	elogd_assert(vector);
 
@@ -455,6 +462,365 @@ elogd_free_line(struct elogd_line * line)
 	free(line);
 }
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
+/******************************************************************************
+ * Line allocator
+ ******************************************************************************/
+
+struct elogd_line_allocator {
+	/* TODO: move to slist ? */
+	struct stroll_dlist_node free;
+	struct elogd_line *      lines;
+	unsigned int             nr;
+};
+
+static struct elogd_line_alloc elogd_line_alloc;
+
+static __elogd_nothrow
+struct elogd_line *
+elogd_alloc_line(void)
+{
+	elogd_assert(elogd_line_alloc.lines);
+	elogd_assert(elogd_line_alloc.nr);
+
+	if (!stroll_dlist_empty(&elogd_line_alloc.free))
+		return elogd_line_from_node(
+			stroll_dlist_dqueue_front(&elogd_line_alloc.free));
+	else
+		return NULL;
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_free_line(struct elogd_line * __restrict  line)
+{
+	elogd_assert(elogd_line_alloc.lines);
+	elogd_assert(elogd_line_alloc.nr);
+	elogd_assert(line);
+	elogd_assert(line >= elogd_line_alloc.lines);
+	elogd_assert(line < &elogd_line_alloc.lines[elogd_line_alloc.nr]);
+
+	stroll_dlist_nqueue_front(&elogd_line_alloc.free, &line->node);
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_free_line_bulk(struct stroll_dlist_node * __restrict lines)
+{
+	elogd_assert(elogd_line_alloc.lines);
+	elogd_assert(elogd_line_alloc.nr);
+	elogd_assert(lines);
+	elogd_assert(!stroll_dlist_empty(lines));
+
+	stroll_dlist_embed_after(&elogd_line_alloc.free,
+	                         stroll_dlist_next(lines),
+	                         stroll_dlist_prev(lines));
+}
+
+static __elogd_nothrow
+int
+elogd_alloc_init(unsigned int nr)
+{
+	elogd_assert(nr);
+
+	unsigned int        l;
+	struct elogd_line * lines;
+
+	lines = malloc(nr * sizeof(lines[0]));
+	if (lines)
+		return -ENOMEM;
+
+	stroll_dlist_init(&elogd_line_alloc.free);
+	for (l = 0; l < nr; l++)
+		stroll_dlist_insert(&elogd_line_alloc.free, &lines[l].node);
+	elogd_line_alloc.lines = lines;
+	elogd_line_alloc.nr = nr;
+
+	return 0;
+}
+
+static __elogd_nothrow
+void
+elogd_alloc_fini(void)
+{
+	elogd_assert(elogd_line_alloc.lines);
+	elogd_assert(elogd_line_alloc.nr);
+
+	free(elogd_line_alloc.lines);
+}
+
+static __elogd_nonull(1)
+struct elogd_line *
+elogd_acquire_line(void)
+{
+	struct elogd_line * line;
+
+	line = elogd_alloc_line();
+	if (line) {
+		elogd_reset_line(line);
+		return line;
+	}
+
+	return NULL;
+}
+
+static __elogd_nonull(1)
+void
+elogd_release_line(struct elogd_line * __restrict  line)
+{
+	elogd_free_line(line);
+}
+
+/******************************************************************************
+ * Line queue
+ ******************************************************************************/
+
+struct elogd_queue {
+	unsigned int             cnt;
+	unsigned int             nr;
+	struct stroll_dlist_node head;
+};
+
+static __elogd_nonull(1) __elogd_pure
+unsigned int
+elogd_queue_nr(const struct elogd_queue * __restrict queue)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+
+	return queue->nr;
+}
+
+static __elogd_nonull(1) __elogd_pure
+unsigned int
+elogd_queue_count(const struct elogd_queue * __restrict queue)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+
+	return queue->cnt;
+}
+
+static __elogd_nonull(1) __elogd_pure
+bool
+elogd_queue_empty(const struct elogd_queue * __restrict queue)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+
+	return !queue->cnt;
+}
+
+static __elogd_nonull(1) __elogd_pure
+bool
+elogd_queue_full(const struct elogd_queue * __restrict queue)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+
+	return queue->cnt == queue->nr;
+}
+
+static __elogd_nonull(1, 2) __elogd_nothrow
+void
+elogd_nqueue(struct elogd_queue * __restrict queue,
+             struct elogd_line * __restrict  line)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt < queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+	elogd_assert_queued_line(line);
+
+	stroll_dlist_nqueue_back(&queue->head, &line->node);
+	queue->cnt++;
+}
+
+static __elogd_nonull(1, 2) __elogd_pure __elogd_nothrow
+int
+elogd_compare_lines(const struct stroll_dlist_node * __restrict first,
+                    const struct stroll_dlist_node * __restrict second,
+                    void *                                      data __unused)
+{
+	return utime_tspec_cmp(&elogd_line_from_node(first)->tstamp,
+	                       &elogd_line_from_node(second)->tstamp);
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_nqueue_inorder(struct elogd_queue * __restrict queue,
+                     struct elogd_line * __restrict  line)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt < queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+	elogd_assert_queued_line(line);
+
+	stroll_dlist_insert_inorder_back(&queue->head,
+	                                 &line->node,
+	                                 elogd_compare_lines,
+	                                 NULL);
+	queue->busy_cnt++;
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_nqueue_sort(struct elogd_queue * __restrict       queue,
+                  struct stroll_dlist_node * __restrict lines,
+                  unsigned int                          count)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+	elogd_assert(count);
+	elogd_assert((queue->cnt + count) <= queue->nr);
+#if defined(CONFIG_ELOGD_ASSERT)
+	struct elogd_line * ln;
+	unsigned int        cnt = 0;
+	stroll_dlist_foreach_entry(lines, ln, node) {
+		cnt++;
+		elogd_assert_queued_line(ln);
+	}
+	elogd_assert(cnt == count);
+#endif /* defined(CONFIG_ELOGD_ASSERT) */
+
+	stroll_dlist_merge_sort(lines, elogd_compare_lines, NULL);
+	stroll_dlist_merge_presort(&queue->head,
+	                           lines,
+	                           elogd_compare_lines,
+	                           NULL);
+	queue->cnt += count;
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
+{
+	elogd_assert(queue);
+	elogd_assert(nr);
+
+	queue->cnt = 0;
+	queue->nr = 0;
+	stroll_dlist_init(&queue->head);
+}
+
+static __elogd_nonull(1) __elogd_pure __elogd_nothrow
+void
+elogd_queue_fini(const struct elogd_queue * __restrict queue __unused)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+}
+
+/******************************************************************************
+ * Message line source
+ ******************************************************************************/
+
+typedef struct elogd_queue *
+        (elogd_collect_fn)(struct elogd_source * __restrict source);
+
+struct elogd_source {
+	struct elogd_queue queue;
+	elogd_collect_fn * collect;
+};
+
+static __elogd_nonull(1) __elogd_pure __elogd_nothrow
+struct elogd_queue *
+elogd_source_queue(const struct elogd_source * __restrict source)
+{
+	elogd_assert(source);
+	elogd_assert(source->collect);
+
+	return &source->queue;
+}
+
+static __elogd_nonull(1) __elogd_pure __elogd_nothrow
+unsigned int
+elogd_source_free_count(const struct elogd_source * __restrict source)
+{
+	elogd_assert(source);
+	elogd_assert(source->collect);
+
+	return elogd_queue_nr(&source->queue) -
+	       elogd_queue_count(&source->queue);
+}
+
+static __elogd_nonull(1, 2) __elogd_nothrow
+unsigned int
+elogd_source_nqueue(struct elogd_source * __restrict source,
+                    struct elogd_line * __restrict   line)
+{
+	elogd_assert(source);
+	elogd_assert(source->collect);
+	elogd_assert(line);
+
+	elogd_nqueue(&source->queue, line);
+}
+
+static __elogd_nonull(1)
+struct elogd_queue *
+elogd_source_collect(struct elogd_source * __restrict source)
+{
+	elogd_assert(source);
+	elogd_assert(source->collect);
+
+	if (!elogd_queue_count(&source->queue))
+		return NULL;
+
+	return source->collect(source);
+}
+
+static __elogd_nonull(1, 3) __elogd_nothrow
+void
+elogd_source_init(struct elogd_source * __restrict source,
+                  unsigned int                     nr,
+                  elogd_collect_fn *               collect)
+{
+	elogd_assert(source);
+	elogd_assert(nr);
+	elogd_assert(collect);
+
+	elogd_queue_init(&source->queue, nr);
+	source->collect = collect;
+}
+
+static __elogd_nonull(1, 3) __elogd_nothrow
+void
+elogd_source_fini(const struct elogd_source * __restrict source)
+{
+	elogd_assert(source);
+	elogd_assert(source->collect);
+
+	elogd_queue_fini(&source->queue);
+}
+
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
+
 /******************************************************************************
  * Logging output line queue handling.
  ******************************************************************************/
@@ -466,12 +832,6 @@ struct elogd_queue {
 	unsigned int             nr;
 	struct elogd_line **     lines;
 };
-
-static struct elogd_line * __elogd_nonull(1) __elogd_pure
-elogd_line_from_node(const struct stroll_dlist_node * __restrict node)
-{
-	return stroll_dlist_entry(node, struct elogd_line, node);
-}
 
 static unsigned int __elogd_nonull(1) __elogd_pure
 elogd_queue_nr(const struct elogd_queue * __restrict queue)
@@ -497,22 +857,6 @@ elogd_queue_busy_count(const struct elogd_queue * __restrict queue)
 	return queue->busy_cnt;
 }
 
-static __elogd_nonull(1, 2)
-int
-elogd_compare_lines(const struct stroll_dlist_node * __restrict first,
-                    const struct stroll_dlist_node * __restrict second,
-                    void *                                      data __unused)
-{
-	const struct elogd_line * fst = stroll_dlist_entry(first,
-	                                                   struct elogd_line,
-	                                                   node);
-	const struct elogd_line * snd = stroll_dlist_entry(second,
-	                                                   struct elogd_line,
-	                                                   node);
-
-	return utime_tspec_cmp(&fst->tstamp, &snd->tstamp);
-}
-
 /*
  * TODO: drop duplicate messages.
  */
@@ -525,7 +869,7 @@ elogd_nqueue_line(struct elogd_queue * __restrict queue,
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt < queue->nr);
 	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
-	elog_assert_queued_line(line);
+	elogd_assert_queued_line(line);
 
 	stroll_dlist_insert_inorder_back(&queue->busy,
 	                                 &line->node,
@@ -562,7 +906,7 @@ elogd_bulk_dqueue_lines(struct elogd_queue *                  queue,
 	elogd_assert(queue->busy_cnt <= queue->nr);
 	elogd_assert(!stroll_dlist_empty(&queue->busy));
 	elogd_assert(lines);
-	elog_assert_queued_line(last);
+	elogd_assert_queued_line(last);
 	elogd_assert(count);
 	elogd_assert(count <= queue->busy_cnt);
 
@@ -646,8 +990,8 @@ elogd_requeue_line(struct elogd_queue * __restrict queue,
 	elogd_assert(queue->lines);
 	elogd_assert(queue->busy_cnt < queue->nr);
 	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
-	elog_assert_queued_line(line);
-	elog_assert_line_head(line, line->vector);
+	elogd_assert_queued_line(line);
+	elogd_assert_line_head(line, line->vector);
 
 	queue->busy_cnt++;
 	stroll_dlist_nqueue_front(&queue->busy, &line->node);
@@ -730,41 +1074,6 @@ elogd_requeue_iovec_lines(struct elogd_queue * __restrict queue,
 	/* Requeue uncompleted lines. */
 	queue->busy_cnt += count - cnt;
 	stroll_dlist_embed_after(&queue->busy, node, stroll_dlist_prev(lines));
-}
-
-static struct elogd_line * __elogd_nonull(1)
-elogd_acquire_line(struct elogd_queue * __restrict queue)
-{
-	elogd_assert(queue);
-	elogd_assert(queue->nr);
-	elogd_assert(queue->lines);
-	elogd_assert(queue->busy_cnt <= queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
-
-	if (!stroll_dlist_empty(&queue->free)) {
-		struct elogd_line * ln;
-
-		ln = elogd_line_from_node(stroll_dlist_dqueue_front(&queue->free));
-		elogd_reset_line(ln);
-
-		return ln;
-	}
-
-	return NULL;
-}
-
-static void __elogd_nonull(1, 2)
-elogd_release_line(struct elogd_queue * __restrict queue,
-                   struct elogd_line * __restrict  line)
-{
-	elogd_assert(queue);
-	elogd_assert(queue->nr);
-	elogd_assert(queue->lines);
-	elogd_assert(queue->busy_cnt < queue->nr);
-	elogd_assert(!!queue->busy_cnt ^ stroll_dlist_empty(&queue->busy));
-	elogd_assert(line);
-
-	stroll_dlist_nqueue_front(&queue->free, &line->node);
 }
 
 static void __elogd_nonull(1, 2)
@@ -1373,15 +1682,16 @@ elogd_close_store(struct elogd_store * __restrict store)
  ******************************************************************************/
 
 struct elogd_kmsg {
+	struct elogd_source  src;
 	struct upoll_worker  work;
 	int                  dev_fd;
 	uint64_t *           seqno;
-	struct elogd_queue * queue;
 	int                  stat_fd;
 };
 
-static const char * __elogd_nonull(1, 2)
-elogd_parse_kmsg_prio(struct elogd_line * __restrict line,
+static __elogd_nonull(1, 2) __elogd_nothrow
+const char *
+elogd_kmsg_parse_prio(struct elogd_line * __restrict line,
                       const char * __restrict        string)
 {
 	elogd_assert(line);
@@ -1392,8 +1702,9 @@ elogd_parse_kmsg_prio(struct elogd_line * __restrict line,
 
 #if __WORDSIZE == 64
 
-static const char * __elogd_nonull(1, 2)
-elogd_parse_kmsg_seqno(const char * __restrict string,
+static __elogd_nonull(1, 2) __elogd_nothrow
+const char *
+elogd_kmsg_parse_seqno(const char * __restrict string,
                        uint64_t * __restrict   seqno)
 {
 	elogd_assert(string);
@@ -1414,8 +1725,9 @@ elogd_parse_kmsg_seqno(const char * __restrict string,
 	return &string[len + 1];
 }
 
-static const char * __elogd_nonull(1, 2)
-elogd_parse_kmsg_tstamp(struct elogd_line * __restrict line,
+static __elogd_nonull(1, 2) __elogd_nothrow
+const char *
+elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
                         const char * __restrict        string)
 {
 	elogd_assert(line);
@@ -1440,8 +1752,9 @@ elogd_parse_kmsg_tstamp(struct elogd_line * __restrict line,
 
 #elif __WORDSIZE == 32
 
-static const char * __elogd_nonull(1, 2)
-elogd_parse_kmsg_seqno(const char * __restrict string,
+static __elogd_nonull(1, 2) __elogd_nothrow
+const char *
+elogd_kmsg_parse_seqno(const char * __restrict string,
                        uint64_t * __restrict   seqno)
 {
 	elogd_assert(string);
@@ -1462,8 +1775,9 @@ elogd_parse_kmsg_seqno(const char * __restrict string,
 	return &string[len + 1];
 }
 
-static const char * __elogd_nonull(1, 2)
-elogd_parse_kmsg_tstamp(struct elogd_line * __restrict line,
+static __elogd_nonull(1, 2) __elogd_nothrow
+const char *
+elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
                         const char * __restrict        string)
 {
 	elogd_assert(line);
@@ -1490,7 +1804,8 @@ elogd_parse_kmsg_tstamp(struct elogd_line * __restrict line,
 #error "Unsupported machine word size !"
 #endif /* __WORDSIZE == 64 */
 
-static const char * __elogd_nonull(1)
+static __elogd_nonull(1) __elogd_nothrow
+const char *
 elogd_skip_field(const char * __restrict string, int separator, size_t len)
 {
 	elogd_assert(string);
@@ -1512,8 +1827,9 @@ elogd_skip_field(const char * __restrict string, int separator, size_t len)
 	return NULL;
 }
 
-static int __elogd_nonull(1, 2)
-elogd_parse_kmsg(struct elogd_line * __restrict line,
+static __elogd_nonull(1, 2) __elogd_nothrow
+int
+elogd_kmsg_parse(struct elogd_line * __restrict line,
                  uint64_t * __restrict          seqno)
 {
 	elogd_assert(line);
@@ -1529,17 +1845,17 @@ elogd_parse_kmsg(struct elogd_line * __restrict line,
 		return -EINVAL;
 
 	/* Parse priority tag. */
-	data = elogd_parse_kmsg_prio(line, data);
+	data = elogd_kmsg_parse_prio(line, data);
 	if (!data)
 		return -EINVAL;
 
 	/* Parse the 64 bits long sequence number. */
-	data = elogd_parse_kmsg_seqno(data, seqno);
+	data = elogd_kmsg_parse_seqno(data, seqno);
 	if (!data)
 		return -EINVAL;
 
 	/* Parse monotonic timestamp. */
-	data = elogd_parse_kmsg_tstamp(line, data);
+	data = elogd_kmsg_parse_tstamp(line, data);
 	if (!data)
 		return -EINVAL;
 
@@ -1571,14 +1887,14 @@ elogd_parse_kmsg(struct elogd_line * __restrict line,
 	return 0;
 }
 
-static int __elogd_nonull(1, 2)
-elogd_read_kmsg(const struct elogd_kmsg * __restrict kmsg,
+static __elogd_nonull(1, 2) __elogd_nothrow
+int
+elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
                 struct elogd_line * __restrict       line)
 {
 	elogd_assert(kmsg);
 	elogd_assert(kmsg->dev_fd >= 0);
 	elogd_assert(kmsg->seqno);
-	elogd_assert(kmsg->queue);
 	elogd_assert(kmsg->stat_fd >= 0);
 
 	ssize_t ret;
@@ -1608,8 +1924,9 @@ elogd_read_kmsg(const struct elogd_kmsg * __restrict kmsg,
 	return (!ret) ? -EAGAIN : ret;
 }
 
-static int __elogd_nonull(1)
-elogd_process_kmsg(const struct elogd_kmsg * __restrict kmsg)
+static __elogd_nonull(1) __elogd_nothrow
+int
+elogd_kmsg_process(struct elogd_kmsg * __restrict kmsg)
 {
 	elogd_assert(kmsg);
 	elogd_assert(kmsg->dev_fd >= 0);
@@ -1621,32 +1938,37 @@ elogd_process_kmsg(const struct elogd_kmsg * __restrict kmsg)
 	uint64_t            seqno;
 	int                 ret;
 
-	ln = elogd_acquire_line(kmsg->queue);
+	ln = elogd_acquire_line();
 	if (!ln)
 		return -ENOBUFS;
 
-	ret = elogd_read_kmsg(kmsg, ln);
+	ret = elogd_kmsg_read(kmsg, ln);
 	if (ret)
 		goto release;
 
-	ret = elogd_parse_kmsg(ln, &seqno);
+	ret = elogd_kmsg_parse(ln, &seqno);
 	if (ret)
 		goto release;
 
 	*kmsg->seqno = seqno;
 
-	elogd_nqueue_line(kmsg->queue, ln);
+	/*
+	 * No need to reorder lines with respect to timestamp for kernel
+	 * messages.
+	 */
+	elogd_source_nqueue(&kmsg->src, ln);
 
 	return 0;
 
 release:
-	elogd_release_line(kmsg->queue, ln);
+	elogd_release_line(ln);
 
 	return ret;
 }
 
-static int __elogd_nonull(1, 3)
-elogd_dispatch_kmsg(struct upoll_worker * work,
+static __elogd_nonull(1, 3) __elogd_nothrow
+int
+elogd_kmsg_dispatch(struct upoll_worker * work,
                     uint32_t              state __unused,
                     const struct upoll *  poll __unused)
 {
@@ -1660,19 +1982,19 @@ elogd_dispatch_kmsg(struct upoll_worker * work,
 	elogd_assert(poll);
 
 	const struct elogd_kmsg * kmsg;
-	unsigned int              cnt = elogd_conf.kmsg_fetch;
+	unsigned int              cnt;
 
 	kmsg = containerof(work, struct elogd_kmsg, work);
 	elogd_assert(kmsg);
 	elogd_assert(kmsg->dev_fd >= 0);
 	elogd_assert(kmsg->seqno);
-	elogd_assert(kmsg->queue);
 	elogd_assert(kmsg->stat_fd >= 0);
 
-	do {
+	cnt = elogd_source_free_count(&kmsg->src);
+	while (cnt--) {
 		int ret;
 
-		ret = elogd_process_kmsg(kmsg);
+		ret = elogd_kmsg_process(kmsg);
 		switch (ret) {
 		case 0:
 			break;
@@ -1684,13 +2006,14 @@ elogd_dispatch_kmsg(struct upoll_worker * work,
 		default:
 			elogd_assert(0);
 		}
-	} while (--cnt);
+	}
 
 	return 0;
 }
 
-static int __elogd_nonull(1)
-elogd_skip_init_kmsg(const struct elogd_kmsg * __restrict kmsg)
+static __elogd_nonull(1) __elogd_nothrow
+int
+elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 {
 	elogd_assert(kmsg);
 	elogd_assert(kmsg->dev_fd >= 0);
@@ -1702,17 +2025,17 @@ elogd_skip_init_kmsg(const struct elogd_kmsg * __restrict kmsg)
 	uint64_t            seqno;
 	int                 ret;
 
-	ln = elogd_acquire_line(kmsg->queue);
+	ln = elogd_acquire_line();
 	if (!ln)
 		return -ENOBUFS;
 
 	do {
-		ret = elogd_read_kmsg(kmsg, ln);
+		ret = elogd_kmsg_read(kmsg, ln);
 		elogd_assert(ret != -EINTR);
 		if (ret)
 			break;
 
-		ret = elogd_parse_kmsg(ln, &seqno);
+		ret = elogd_kmsg_parse(ln, &seqno);
 		if (ret)
 			break;
 	} while (seqno <= *kmsg->seqno);
@@ -1727,18 +2050,19 @@ elogd_skip_init_kmsg(const struct elogd_kmsg * __restrict kmsg)
 
 	*kmsg->seqno = seqno;
 
-	elogd_nqueue_line(kmsg->queue, ln);
+	elogd_source_nqueue(&kmsg->src, ln);
 
 	return 0;
 
 release:
-	elogd_release_line(kmsg->queue, ln);
+	elogd_release_line(ln);
 
 	return ret;
 }
 
-static int __elogd_nonull(1)
-elogd_open_kmsg_stat(struct elogd_kmsg * __restrict kmsg)
+static __elogd_nonull(1)
+int
+elogd_kmsg_open_stat(struct elogd_kmsg * __restrict kmsg)
 {
 	elogd_assert_conf();
 	elogd_assert(kmsg);
@@ -1819,13 +2143,19 @@ err:
 	return err;
 }
 
-static int __elogd_nonull(1, 2, 3)
-elogd_open_kmsg(struct elogd_kmsg * __restrict  kmsg,
-                struct elogd_queue * __restrict queue,
+static __elogd_nonull(1) __elogd_pure __elogd_nothrow
+struct elogd_queue *
+elogd_kmsg_collect(struct elogd_source * __restrict source)
+{
+	return elogd_source_queue(source);
+}
+
+static __elogd_nonull(1, 2)
+int
+elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
                 const struct upoll * __restrict poll)
 {
 	elogd_assert(kmsg);
-	elogd_assert(queue);
 	elogd_assert(poll);
 
 	int          fd;
@@ -1845,13 +2175,13 @@ elogd_open_kmsg(struct elogd_kmsg * __restrict  kmsg,
 		goto err;
 	}
 
-	err = elogd_open_kmsg_stat(kmsg);
+	err = elogd_kmsg_open_stat(kmsg);
 	if (err) {
 		msg = "cannot retrieve message sequence";
 		goto close_dev;
 	}
 
-	kmsg->work.dispatch = elogd_dispatch_kmsg;
+	kmsg->work.dispatch = elogd_kmsg_dispatch;
 	err = upoll_register(poll,
 	                     fd,
 	                     EPOLLIN,
@@ -1866,9 +2196,12 @@ elogd_open_kmsg(struct elogd_kmsg * __restrict  kmsg,
 
 	kmsg->dev_fd = fd;
 	kmsg->queue = queue;
+	elogd_source_init(&kmsg->src,
+	                  elogd_conf.kmsg_fetch,
+	                  elogd_kmsg_collect);
 
 	if (*kmsg->seqno) {
-		err = elogd_skip_init_kmsg(kmsg);
+		err = elogd_kmsg_skip(kmsg);
 		if (err) {
 			msg = "cannot skip outdated messages";
 			goto close_poll;
@@ -1893,8 +2226,9 @@ err:
 	return err;
 }
 
-static void __elogd_nonull(1, 2)
-elogd_close_kmsg(const struct elogd_kmsg * __restrict kmsg,
+static __elogd_nonull(1, 2)
+void
+elogd_kmsg_close(const struct elogd_kmsg * __restrict kmsg,
                  const struct upoll * __restrict      poll)
 {
 	elogd_assert(kmsg);
@@ -1905,6 +2239,8 @@ elogd_close_kmsg(const struct elogd_kmsg * __restrict kmsg,
 	elogd_assert(poll);
 
 	upoll_unregister(poll, kmsg->dev_fd);
+
+	elogd_source_fini(&kmsg->src);
 
 	munmap(kmsg->seqno, sizeof(*kmsg->seqno));
 	ufile_close(kmsg->stat_fd);
@@ -1917,17 +2253,17 @@ elogd_close_kmsg(const struct elogd_kmsg * __restrict kmsg,
  ******************************************************************************/
 
 struct elogd_svc {
-	struct upoll_worker  work;
-	struct unsk_svc      unsk;
-	struct elogd_queue * queue;
+	struct elogd_source src;
+	struct upoll_worker work;
+	struct unsk_svc     unsk;
 };
 
-static int __elogd_nonull(1, 2)
-elogd_read_svc(const struct elogd_svc * __restrict svc,
+static __elogd_nonull(1, 2)
+int
+elogd_svc_read(const struct elogd_svc * __restrict svc,
                struct elogd_line * __restrict      line)
 {
 	elogd_assert(svc);
-	elogd_assert(svc->queue);
 	elogd_assert(line);
 
 	const struct iovec vec = {
@@ -2155,7 +2491,7 @@ elogd_process_svc(const struct elogd_svc * __restrict svc)
 	if (!ln)
 		return -ENOBUFS;
 
-	ret = elogd_read_svc(svc, ln);
+	ret = elogd_svc_read(svc, ln);
 	if (ret)
 		goto release;
 
@@ -2623,8 +2959,6 @@ static
 int
 elogd_parse_user_name(const char * __restrict name)
 {
-	elogd_assert(name);
-
 	if (name) {
 		ssize_t ret;
 
@@ -3263,7 +3597,7 @@ main(int argc, char * const argv[])
 		goto close_sigs;
 
 #warning Fix /dev/kmsg perms
-	err = elogd_open_kmsg(&kmsg, &queue, &poll);
+	err = elogd_kmsg_open(&kmsg, &queue, &poll);
 	if (err)
 		goto close_store;
 
@@ -3295,7 +3629,7 @@ main(int argc, char * const argv[])
 close_svc:
 	elogd_close_svc(&svc, &poll);
 close_kmsg:
-	elogd_close_kmsg(&kmsg, &poll);
+	elogd_kmsg_close(&kmsg, &poll);
 close_store:
 	elogd_close_store(&store);
 close_sigs:

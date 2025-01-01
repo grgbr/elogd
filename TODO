@@ -1,0 +1,20 @@
+* Check file system permissions for mqueue / syslog socket and /dev/kmsg. Review
+with respect to CONFIG_ELOGD_SVC_GROUP and CONFIG_ELOGD_USER build / command
+line options !
+
+* make sure all printable characters are properly rendered (tab is actually
+rendered as \x09)
+
+* upon wall clock changes, update boot / realtime clock offset thanks to
+TFD_TIMER_CANCEL_ON_SET (see timerfd_create(2)).
+
+* delay line flush to store by a configurable amount of seconds and try to flush
+  by a configurable amount of bytes
+
+* make initial messages are properly ordered on first loop iteration
+
+* return error upon unknown user group at file creations ??
+
+* drop duplicates ?
+
+rework ongoing: continue from line 2327
