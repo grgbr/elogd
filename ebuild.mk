@@ -11,8 +11,8 @@ config-h      := $(PACKAGE)/config.h
 common-cflags := -Wall -Wextra -Wformat=2 -D_GNU_SOURCE $(EXTRA_CFLAGS)
 
 bins          := elogd
-elogd-objs    := elogd.o
-elogd-cflags  := $(common-cflags)
+elogd-objs    := mqueue.o svc.o kmsg.o sigchan.o common.o #elogd.o
+elogd-cflags  := $(common-cflags) -idirafter $(SRCDIR)
 elogd-ldflags := $(EXTRA_LDFLAGS)
 elogd-pkgconf := libelog libenbox libutils libstroll
 elogd-path    := $(SBINDIR)/elogd
