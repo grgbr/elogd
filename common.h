@@ -223,12 +223,23 @@ struct elogd_line {
 	elogd_assert(!((_line)->facility & ~LOG_FACMASK)); \
 	elogd_line_assert_msg(_line, (_line)->vector)
 
-static inline __elogd_nonull(1) __elogd_pure
+static inline __elogd_nonull(1) __elogd_pure __warn_result
 struct elogd_line *
 elogd_line_from_node(const struct stroll_dlist_node * __restrict node)
 {
 	return stroll_dlist_entry(node, struct elogd_line, node);
 }
+
+extern size_t
+elogd_line_fill_rfc3164(
+	struct elogd_line * __restrict     line,
+	const struct timespec * __restrict boot,
+	struct iovec                       vector[__restrict_arr 2])
+	 __elogd_nonull(1, 2, 3) __elogd_nothrow __leaf __warn_result;
+
+extern void
+elogd_line_fixup_partial(struct elogd_line * __restrict line, size_t written)
+	__elogd_nonull(1) __elogd_nothrow __leaf;
 
 extern struct elogd_line *
 elogd_line_create(void)
@@ -236,7 +247,11 @@ elogd_line_create(void)
 
 extern void
 elogd_line_destroy(struct elogd_line * __restrict line)
-	__elogd_nonull(1) __leaf;
+	__elogd_nonull(1) __elogd_nothrow __leaf;
+
+extern void
+elogd_line_destroy_bulk(struct stroll_dlist_node * lines)
+	__elogd_nonull(1) __elogd_nothrow __leaf;
 
 /******************************************************************************
  * Logging output line queue
@@ -247,6 +262,9 @@ struct elogd_queue {
 	unsigned int             nr;
 	struct stroll_dlist_node head;
 };
+
+#define elogd_queue_foreach_node(_queue, _node) \
+	stroll_dlist_foreach_node(&(_queue)->head, node)
 
 static inline __elogd_nonull(1) __elogd_pure
 unsigned int
@@ -334,6 +352,19 @@ elogd_nqueue_presort(struct elogd_queue * __restrict       queue,
                      struct stroll_dlist_node * __restrict presort,
                      unsigned int                          count)
 	__elogd_nonull(1, 2) __elogd_nothrow;
+
+extern void
+elogd_dqueue_bulk(struct elogd_queue * __restrict       queue,
+                  struct stroll_dlist_node * __restrict last,
+                  struct stroll_dlist_node * __restrict lines,
+                  unsigned int                          count)
+	__elogd_nonull(1, 2, 3) __elogd_nothrow __leaf;
+
+extern void
+elogd_requeue_bulk(struct elogd_queue * __restrict       queue,
+                   struct stroll_dlist_node * __restrict lines,
+                   unsigned int                          count)
+	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
 
 extern void
 elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
