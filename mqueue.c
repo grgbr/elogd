@@ -128,6 +128,7 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
 
 	mqueue = containerof(work, struct elogd_mqueue, work);
 	elogd_assert(mqueue);
+	elogd_assert(mqueue->pipe);
 	elogd_assert(mqueue->fd >= 0);
 
 	nr = elogd_queue_free_count(&mqueue->queue);
@@ -175,15 +176,20 @@ sort:
 			elogd_nqueue_presort(&mqueue->queue, &tmp, cnt);
 	}
 
+	if (elogd_queue_busy_count(&mqueue->queue))
+		elogd_pipeline_on_alive(mqueue->pipe, &mqueue->queue);
+
 	return 0;
 }
 
 int
-elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
-                  const struct upoll * __restrict  poll)
+elogd_mqueue_open(struct elogd_mqueue * __restrict   mqueue,
+                  struct elogd_pipeline * __restrict pipe,
+                  const struct upoll * __restrict    poll)
 {
 	elogd_assert_conf();
 	elogd_assert(mqueue);
+	elogd_assert(pipe);
 	elogd_assert(poll);
 
 	int            fd;
@@ -228,6 +234,7 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
 	}
 
 	elogd_queue_init(&mqueue->queue, elogd_conf.mqueue_fetch);
+	mqueue->pipe = pipe;
 	mqueue->fd = fd;
 
 	return 0;

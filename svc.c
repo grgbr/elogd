@@ -287,6 +287,7 @@ elogd_svc_dispatch(struct upoll_worker * work,
 
 	svc = containerof(work, struct elogd_svc, work);
 	elogd_assert(svc);
+	elogd_assert(svc->pipe);
 
 	cnt = elogd_queue_free_count(&svc->queue);
 	while (cnt--) {
@@ -312,7 +313,7 @@ elogd_svc_dispatch(struct upoll_worker * work,
 			 * elogd_flush_store() a chance to release a few line
 			 * buffers...
 			 */
-			return 0;
+			goto publish;
 
 		case -ENOMEM:
 			/*
@@ -326,15 +327,21 @@ elogd_svc_dispatch(struct upoll_worker * work,
 		}
 	};
 
+publish:
+	if (elogd_queue_busy_count(&svc->queue))
+		elogd_pipeline_on_alive(svc->pipe, &svc->queue);
+
 	return 0;
 }
 
 
 int
-elogd_svc_open(struct elogd_svc * __restrict   svc,
-               const struct upoll * __restrict poll)
+elogd_svc_open(struct elogd_svc * __restrict      svc,
+               struct elogd_pipeline * __restrict pipe,
+               const struct upoll * __restrict    poll)
 {
 	elogd_assert(svc);
+	elogd_assert(pipe);
 	elogd_assert(poll);
 
 	int          err;
@@ -379,6 +386,7 @@ elogd_svc_open(struct elogd_svc * __restrict   svc,
 	}
 
 	elogd_queue_init(&svc->queue, elogd_conf.svc_fetch);
+	svc->pipe = pipe;
 
 	return 0;
 

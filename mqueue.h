@@ -13,15 +13,17 @@
 
 /* POSIX message queue service processor. */
 struct elogd_mqueue {
-	struct elogd_queue  queue;
-	struct upoll_worker work;
-	mqd_t               fd;
+	struct elogd_queue      queue;
+	struct upoll_worker     work;
+        struct elogd_pipeline * pipe;
+	mqd_t                   fd;
 };
 
 extern int
-elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
-                  const struct upoll * __restrict  poll)
-	__elogd_nonull(1, 2) __leaf __warn_result;
+elogd_mqueue_open(struct elogd_mqueue * __restrict   mqueue,
+                  struct elogd_pipeline * __restrict pipe,
+                  const struct upoll * __restrict    poll)
+	__elogd_nonull(1, 2, 3) __leaf __warn_result;
 
 extern void
 elogd_mqueue_close(const struct elogd_mqueue * __restrict mqueue,

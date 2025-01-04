@@ -456,6 +456,60 @@ elogd_requeue_bulk(struct elogd_queue * __restrict       queue,
 	queue->cnt += count;
 }
 
+void
+elogd_queue_move(struct elogd_queue * __restrict destination,
+                 struct elogd_queue * __restrict source)
+{
+	elogd_assert(destination);
+	elogd_assert(!destination->cnt);
+	elogd_assert(destination->nr);
+	elogd_assert(stroll_dlist_empty(&destination->head));
+	elogd_assert(source);
+	elogd_assert(source->cnt);
+	elogd_assert(source->nr);
+	elogd_assert(source->cnt <= source->nr);
+	elogd_assert(!stroll_dlist_empty(&source->head));
+	elogd_assert(destination->nr >= source->nr);
+
+	destination->cnt = source->cnt;
+	stroll_dlist_embed_after(&destination->head,
+	                         stroll_dlist_next(&source->head),
+	                         stroll_dlist_prev(&source->head));
+
+	source->cnt = 0;
+	stroll_dlist_init(&source->head);
+}
+
+void
+elogd_queue_kwmerge(struct elogd_queue * queues[__restrict_arr],
+                    unsigned int         count)
+{
+	elogd_assert(queues);
+	elogd_assert(count);
+
+	unsigned int               q;
+	unsigned int               cnt;
+	struct stroll_dlist_node * heads[count];
+
+	for (q = 0, cnt = 0; q < count; q++) {
+		elogd_assert(queues[q]);
+		elogd_assert(queues[q]->cnt);
+		elogd_assert(queues[q]->nr);
+		elogd_assert(queues[q]->cnt <= queues[q]->nr);
+		elogd_assert(!stroll_dlist_empty(&queues[q]->head));
+
+		cnt += queues[q]->cnt;
+		heads[q] = &queues[q]->head;
+	}
+
+	stroll_dlist_kwmerge_presort(heads, count, elogd_queue_line_cmp, NULL);
+
+	queues[0]->cnt = cnt;
+	for (q = 1; q < count; q++) {
+		queues[q]->cnt = 0;
+		stroll_dlist_init(&queues[q]->head);
+	}
+}
 
 void
 elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)

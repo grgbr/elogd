@@ -311,6 +311,7 @@ elogd_kmsg_dispatch(struct upoll_worker * work,
 
 	kmsg = containerof(work, struct elogd_kmsg, work);
 	elogd_assert(kmsg);
+	elogd_assert(kmsg->pipe);
 	elogd_assert(kmsg->dev_fd >= 0);
 	elogd_assert(kmsg->seqno);
 	elogd_assert(kmsg->stat_fd >= 0);
@@ -326,12 +327,16 @@ elogd_kmsg_dispatch(struct upoll_worker * work,
 
 		case -ENOBUFS:
 		case -EAGAIN:
-			return 0;
+			goto publish;
 
 		default:
 			elogd_assert(0);
 		}
 	}
+
+publish:
+	if (elogd_queue_busy_count(&kmsg->queue))
+		elogd_pipeline_on_alive(kmsg->pipe, &kmsg->queue);
 
 	return 0;
 }
@@ -469,10 +474,12 @@ err:
 }
 
 int
-elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
-                const struct upoll * __restrict poll)
+elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
+                struct elogd_pipeline * __restrict pipe,
+                const struct upoll * __restrict    poll)
 {
 	elogd_assert(kmsg);
+	elogd_assert(pipe);
 	elogd_assert(poll);
 
 	int          fd;
@@ -521,6 +528,10 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
 			goto close_poll;
 		}
 	}
+
+	kmsg->pipe = pipe;
+	if (elogd_queue_busy_count(&kmsg->queue))
+		elogd_pipeline_on_alive(pipe, &kmsg->queue);
 
 	return 0;
 

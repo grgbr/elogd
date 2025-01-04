@@ -5,9 +5,12 @@
  * Copyright (C) 2022-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
+#include "common.h"
+#include "sigchan.h"
 #include "kmsg.h"
 #include "svc.h"
 #include "mqueue.h"
+#include "store.h"
 
 #include <libgen.h>
 /* Make sure we use the GNU version of basename(3). */
@@ -16,16 +19,137 @@
 #endif /* defined(basename) */
 #include <string.h>
 
-#include <stroll/dlist.h>
-#include <utils/time.h>
-#include <utils/mqueue.h>
 #include <utils/file.h>
-#include <utils/signal.h>
 #include <enbox/enbox.h>
-#include <getopt.h>
 #include <sys/file.h>
-#include <sys/uio.h>
-#include <sys/syslog.h>
+#include <getopt.h>
+
+/******************************************************************************
+ * Message pipeline handling
+ ******************************************************************************/
+
+struct elogd_pipeline {
+	unsigned int         cnt;
+	struct elogd_queue * alive[4];
+	struct elogd_queue   outq;
+	struct elogd_kmsg    kmsg;
+	struct elogd_svc     svc;
+	struct elogd_mqueue  mqueue;
+	struct elogd_store   store;
+};
+
+void
+elogd_pipeline_on_alive(struct elogd_pipeline * __restrict pipe,
+                        struct elogd_queue *    __restrict queue)
+{
+	pipe->alive[pipe->cnt++] = queue;
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_pipeline_on_begin(struct elogd_pipeline * __restrict pipe)
+{
+	elogd_assert(!pipe->cnt);
+
+	if (!elogd_queue_empty(&pipe->outq))
+		elogd_pipeline_on_alive(pipe, &pipe->outq);
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_pipeline_on_end(struct elogd_pipeline * __restrict pipe)
+{
+	if (pipe->cnt) {
+		if (pipe->alive[0] != &pipe->outq) {
+			elogd_assert(elogd_queue_empty(&pipe->outq));
+			elogd_assert(!elogd_queue_empty(pipe->alive[0]));
+
+			elogd_queue_move(&pipe->outq, pipe->alive[0]);
+			pipe->alive[0] = &pipe->outq;
+		}
+
+		elogd_queue_kwmerge(pipe->alive, pipe->cnt);
+
+		elogd_store_flush(&pipe->store, &pipe->outq);
+
+		pipe->cnt = 0;
+	}
+}
+
+static __elogd_nonull(1, 2)
+int
+elogd_pipeline_open(struct elogd_pipeline * __restrict pipe,
+                    const struct upoll * __restrict    poll)
+{
+	unsigned int nr = elogd_conf.kmsg_fetch +
+	                  elogd_conf.mqueue_fetch +
+	                  elogd_conf.svc_fetch;
+	int          err;
+
+	err = elogd_alloc_init(nr);
+	if (err)
+		return err;
+
+	elogd_queue_init(&pipe->outq, nr);
+
+	/*
+	 * Make sure that active queues handling is properly initialized since
+	 * notifications may be sent at data channel opening time (e.g.,
+	 * elogd_kmsg_open()).
+	 */
+	pipe->cnt = 0;
+	memset(pipe->alive, 0, sizeof(pipe->alive));
+
+	err = elogd_svc_open(&pipe->svc, pipe, poll);
+	if (err)
+		goto fini_outq;
+
+#warning Fix /dev/kmsg perms
+	err = elogd_kmsg_open(&pipe->kmsg, pipe, poll);
+	if (err)
+		goto close_svc;
+
+	err = elogd_mqueue_open(&pipe->mqueue, pipe, poll);
+	if (err)
+		goto close_kmsg;
+
+	err = elogd_store_open(&pipe->store);
+	if (err)
+		goto close_mqueue;
+
+	return 0;
+
+close_mqueue:
+	elogd_mqueue_close(&pipe->mqueue, poll);
+close_kmsg:
+	elogd_kmsg_close(&pipe->kmsg, poll);
+close_svc:
+	elogd_svc_close(&pipe->svc, poll);
+fini_outq:
+	elogd_queue_fini(&pipe->outq);
+	elogd_alloc_fini();
+
+	return err;
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_pipeline_close(struct elogd_pipeline * __restrict pipe,
+                     const struct upoll * __restrict    poll)
+{
+	elogd_assert(!pipe->cnt);
+
+	elogd_store_close(&pipe->store);
+	elogd_mqueue_close(&pipe->mqueue, poll);
+	elogd_kmsg_close(&pipe->kmsg, poll);
+	elogd_svc_close(&pipe->svc, poll);
+	elogd_queue_fini(&pipe->outq);
+	elogd_alloc_fini();
+}
+
+/******************************************************************************
+ * Main
+ ******************************************************************************/
 
 uid_t elogd_uid;
 gid_t elogd_gid;
@@ -534,15 +658,12 @@ elogd_unlock(void)
 int
 main(int argc, char * const argv[])
 {
-	struct elog_parse      ctx;
-	int                    err;
-	struct upoll           poll;
-	struct elogd_sigchan   sigs;
-	struct elogd_store     store;
-	struct elogd_kmsg      kmsg;
-	struct elogd_svc       svc;
-	struct elogd_mqueue    mqueue;
-	int                    stat = EXIT_FAILURE;
+	struct elog_parse     ctx;
+	int                   err;
+	struct upoll          poll;
+	struct elogd_sigchan  sigs;
+	struct elogd_pipeline pipe;
+	int                   stat = EXIT_FAILURE;
 
 	elogd_parse_init_log(&ctx);
 
@@ -708,49 +829,29 @@ main(int argc, char * const argv[])
 
 	elogd_secure();
 
-	err = elogd_lock();
-	if (err)
+	if (elogd_lock())
 		goto out;
 
 	elogd_uid = getuid();
 	elogd_gid = getgid();
-
-	err = elogd_alloc_init(elogd_conf.kmsg_fetch +
-	                       elogd_conf.mqueue_fetch +
-	                       elogd_conf.svc_fetch);
-	if (err)
-		goto unlock;
 
 	err = upoll_open(&poll, 4);
 	if (err) {
 		elogd_err("cannot initialize polling: %s (%d).\n",
 		          strerror(-err),
 		          -err);
-		goto fini_alloc;
+		goto unlock;
 	}
 
-	err = elogd_sigchan_open(&sigs, &poll);
-	if (err)
+	if (elogd_sigchan_open(&sigs, &poll))
 		goto close_poll;
 
-	err = elogd_store_open(&store);
-	if (err)
+	if (elogd_pipeline_open(&pipe, &poll))
 		goto close_sigs;
 
-#warning Fix /dev/kmsg perms
-	err = elogd_kmsg_open(&kmsg, &poll);
-	if (err)
-		goto close_store;
-
-	err = elogd_svc_open(&svc, &poll);
-	if (err)
-		goto close_kmsg;
-
-	err = elogd_mqueue_open(&mqueue, &poll);
-	if (err)
-		goto close_svc;
-
 	do {
+		elogd_pipeline_on_begin(&pipe);
+
 		err = upoll_process(&poll, -1);
 		if (err == -EINTR) {
 			/* ignore signals interrupts (i.e. ptrace(2) related) */
@@ -759,26 +860,18 @@ main(int argc, char * const argv[])
 		}
 		elogd_assert(!err || (err == -ESHUTDOWN));
 
-		elogd_store_flush(&store, &queue);
+		elogd_pipeline_on_end(&pipe);
 	} while (!err);
 
 	if (err == -ESHUTDOWN)
 		stat = EXIT_SUCCESS;
 
-	elogd_mqueue_close(&mqueue, &poll);
+	elogd_pipeline_close(&pipe, &poll);
 
-close_svc:
-	elogd_svc_close(&svc, &poll);
-close_kmsg:
-	elogd_kmsg_close(&kmsg, &poll);
-close_store:
-	elogd_store_close(&store);
 close_sigs:
 	elogd_sigchan_close(&sigs, &poll);
 close_poll:
 	upoll_close(&poll);
-fini_alloc:
-	elogd_alloc_fini();
 unlock:
 	elogd_unlock();
 out:
@@ -790,28 +883,4 @@ usage:
 	elogd_parse_fini_log(&ctx);
 	show_usage();
 	return EXIT_FAILURE;
-}
-
-
-FINISH ME !!
-
-static __stroll_nonull(1, 2) __stroll_nothrow
-int
-elogd_merge_queues(struct elogd_queue * __restrict sink,
-                   struct elogd_queue *            sources[__restrict_arr];
-                   unsigned int                    count)
-{
-	struct elogd_queue * srcs[count + 1];
-	unsigned int         s;
-	unsigned int         cnt = 0;
-
-	for (s = 0; s < count; s++) {
-		if (elogd_queue_empty(sources[q]))
-	}
-
-	if (elogd_queue_empty(sink))
-
-	stroll_dlist_kwmerge_presort(srcs, cnt, elogd_queue_line_cmp, NULL);
-
-
 }

@@ -326,6 +326,18 @@ elogd_queue_full(const struct elogd_queue * __restrict queue)
 	return queue->cnt == queue->nr;
 }
 
+static inline __elogd_nonull(1) __elogd_pure
+struct stroll_dlist_node *
+elogd_queue_head(const struct elogd_queue * __restrict queue)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+
+	return (struct stroll_dlist_node *)&queue->head;
+}
+
 static inline __elogd_nonull(1, 2) __elogd_nothrow
 void
 elogd_nqueue(struct elogd_queue * __restrict queue,
@@ -367,6 +379,16 @@ elogd_requeue_bulk(struct elogd_queue * __restrict       queue,
 	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
 
 extern void
+elogd_queue_move(struct elogd_queue * __restrict destination,
+                 struct elogd_queue * __restrict source)
+	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
+
+extern void
+elogd_queue_kwmerge(struct elogd_queue * queues[__restrict_arr],
+                    unsigned int         count)
+	__elogd_nonull(1) __elogd_nothrow __leaf;
+
+extern void
 elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
 	__elogd_nonull(1) __elogd_nothrow;
 
@@ -379,4 +401,16 @@ elogd_queue_fini(const struct elogd_queue * __restrict queue __unused)
 	elogd_assert(queue->cnt <= queue->nr);
 	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
 }
+
+/******************************************************************************
+ * Pipeline active queue event publisher
+ ******************************************************************************/
+
+struct elogd_pipeline;
+
+extern void
+elogd_pipeline_on_alive(struct elogd_pipeline * __restrict pipeline,
+                        struct elogd_queue * __restrict    queue)
+	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
+
 #endif /* _ELOGD_COMMON_H */
