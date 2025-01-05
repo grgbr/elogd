@@ -5,9 +5,6 @@ line options !
 * make sure all printable characters are properly rendered (tab is actually
 rendered as \x09)
 
-* upon wall clock changes, update boot / realtime clock offset thanks to
-TFD_TIMER_CANCEL_ON_SET (see timerfd_create(2)).
-
 * delay line flush to store by a configurable amount of seconds and try to flush
   by a configurable amount of bytes
 
@@ -17,4 +14,6 @@ TFD_TIMER_CANCEL_ON_SET (see timerfd_create(2)).
 
 * drop duplicates ?
 
-rework ongoing: continue from line 2327
+* refine rfc line generation / fill (relocate into pipeline logic)
+
+* restructure build logic
