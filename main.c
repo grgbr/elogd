@@ -117,6 +117,8 @@ elogd_pipeline_open(struct elogd_pipeline * __restrict pipe,
 	if (err)
 		goto close_mqueue;
 
+	elogd_debug("pipeline started...\n");
+
 	return 0;
 
 close_mqueue:
@@ -145,6 +147,8 @@ elogd_pipeline_close(struct elogd_pipeline * __restrict pipe,
 	elogd_svc_close(&pipe->svc, poll);
 	elogd_queue_fini(&pipe->outq);
 	elogd_alloc_fini();
+
+	elogd_debug("pipeline stopped...\n");
 }
 
 /******************************************************************************
@@ -505,6 +509,8 @@ elogd_parse_stdlog(const char * __restrict        arg,
 "                             syslog socket to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SVC_FETCH) ")\n" \
+"    -v|--stdlog LEVEL     -- set standard output log level\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
 "    -h|--help             -- this help message\n"
 
 static void
@@ -800,7 +806,7 @@ elogd_unlock(void)
 	ufile_close(elogd_lock_fd);
 }
 
-static __utils_nonull(1) __utils_nothrow
+static __elogd_nonull(1) __utils_nothrow
 int
 elogd_setup_loop(struct upoll * __restrict poll, unsigned int nr)
 {
@@ -845,6 +851,7 @@ main(int argc, char * const argv[])
 	if (elogd_pipeline_open(&pipe, &poll))
 		goto close_sigs;
 
+	elogd_debug("processing messages...\n");
 	do {
 		elogd_pipeline_on_begin(&pipe);
 

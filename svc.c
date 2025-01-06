@@ -349,6 +349,9 @@ elogd_svc_open(struct elogd_svc * __restrict      svc,
 	mode_t       msk;
 	gid_t        gid = elogd_gid;
 
+	elogd_debug("initializing '%s' syslog service...\n",
+	            elogd_conf.sock_path);
+
 	err = unsk_dgram_svc_open(&svc->unsk, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (err) {
 		msg = "open failed";
@@ -388,12 +391,14 @@ elogd_svc_open(struct elogd_svc * __restrict      svc,
 	elogd_queue_init(&svc->queue, elogd_conf.svc_fetch);
 	svc->pipe = pipe;
 
+	elogd_debug("syslog service initialized.\n");
+
 	return 0;
 
 close:
 	unsk_svc_close(&svc->unsk);
 err:
-	elogd_err("cannot initialize syslog socket: '%s': %s: %s (%d).\n",
+	elogd_err("cannot initialize syslog service: '%s': %s: %s (%d).\n",
 	          elogd_conf.sock_path,
 	          msg,
 	          strerror(-err),
@@ -407,6 +412,8 @@ elogd_svc_close(const struct elogd_svc * __restrict svc,
                 const struct upoll * __restrict     poll)
 {
 	elogd_assert(svc);
+
+	elogd_debug("closing syslog service...\n");
 
 	upoll_unregister(poll, svc->unsk.fd);
 	elogd_queue_fini(&svc->queue);

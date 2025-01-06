@@ -68,6 +68,8 @@ elogd_sigchan_open(struct elogd_sigchan * __restrict chan,
 	int          err;
 	const char * msg;
 
+	elogd_debug("registering signal handlers...\n");
+
 	usig_addset(&msk, SIGHUP);
 	usig_addset(&msk, SIGINT);
 	usig_addset(&msk, SIGQUIT);
@@ -91,6 +93,8 @@ elogd_sigchan_open(struct elogd_sigchan * __restrict chan,
 
 	usig_procmask(SIG_SETMASK, usig_full_msk, NULL);
 
+	elogd_debug("signal handlers registered.\n");
+
 	return 0;
 
 close:
@@ -111,6 +115,8 @@ elogd_sigchan_close(const struct elogd_sigchan * __restrict chan,
 	elogd_assert(chan);
 	elogd_assert(chan->fd >= 0);
 	elogd_assert(poll);
+
+	elogd_debug("unregistering signal handlers...\n");
 
 	upoll_unregister(poll, chan->fd);
 	usig_close_fd(chan->fd);

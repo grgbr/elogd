@@ -4,6 +4,12 @@ config ELOGD_ASSERT
 	help
 	  Build elogd with internal assertions.
 
+config ELOGD_DEBUG
+	bool "Debugging support"
+	default n
+	help
+	  Build elogd with debugging support.
+
 config ELOGD_STDLOG_SEVERITY
 	int "STDIO logger severity"
 	range 0 7

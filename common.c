@@ -311,8 +311,13 @@ elogd_alloc_init(unsigned int nr)
 	unsigned int        l;
 	struct elogd_line * lines;
 
+	elogd_debug("initializing line allocator "
+	            "with %u lines of %zu bytes each...\n",
+	            nr,
+	            sizeof(lines[0]));
+
 	lines = malloc(nr * sizeof(lines[0]));
-	if (lines)
+	if (!lines)
 		return -ENOMEM;
 
 	stroll_dlist_init(&elogd_the_alloc.free);
@@ -320,6 +325,8 @@ elogd_alloc_init(unsigned int nr)
 		stroll_dlist_insert(&elogd_the_alloc.free, &lines[l].node);
 	elogd_the_alloc.lines = lines;
 	elogd_the_alloc.nr = nr;
+
+	elogd_debug("line allocator initialized.\n");
 
 	return 0;
 }
@@ -329,6 +336,8 @@ elogd_alloc_fini(void)
 {
 	elogd_assert(elogd_the_alloc.lines);
 	elogd_assert(elogd_the_alloc.nr);
+
+	elogd_debug("terminating line allocator...\n");
 
 	free(elogd_the_alloc.lines);
 }

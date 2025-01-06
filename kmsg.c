@@ -486,6 +486,8 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
 	int          err;
 	const char * msg;
 
+	elogd_debug("initializing kernel ring-buffer...\n");
+
 	/*
 	 * This will require CAP_SYSLOG or CAP_SYS_ADMIN capability if kernel is
 	 * built with CONFIG_SECURITY_DMESG_RESTRICT enabled !!
@@ -533,6 +535,8 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
 	if (elogd_queue_busy_count(&kmsg->queue))
 		elogd_pipeline_on_alive(pipe, &kmsg->queue);
 
+	elogd_debug("kernel ring-buffer initialized.\n");
+
 	return 0;
 
 close_poll:
@@ -560,6 +564,8 @@ elogd_kmsg_close(const struct elogd_kmsg * __restrict kmsg,
 	elogd_assert(kmsg->seqno);
 	elogd_assert(kmsg->stat_fd >= 0);
 	elogd_assert(poll);
+
+	elogd_debug("closing kernel ring-buffer...\n");
 
 	upoll_unregister(poll, kmsg->dev_fd);
 

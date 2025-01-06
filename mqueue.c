@@ -198,6 +198,9 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict   mqueue,
 	struct mq_attr attr;
 	struct stat    st;
 
+	elogd_debug("initializing '%s' message queue...\n",
+	            elogd_conf.mqueue_name);
+
 	fd = umq_open(elogd_conf.mqueue_name,
 	              O_RDONLY | O_CLOEXEC | O_NONBLOCK);
 	if (fd < 0) {
@@ -237,6 +240,8 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict   mqueue,
 	mqueue->pipe = pipe;
 	mqueue->fd = fd;
 
+	elogd_debug("message queue initialized.\n");
+
 	return 0;
 
 close:
@@ -257,6 +262,8 @@ elogd_mqueue_close(const struct elogd_mqueue * __restrict mqueue,
 {
 	elogd_assert(mqueue);
 	elogd_assert(mqueue->fd >= 0);
+
+	elogd_debug("closing message queue...\n");
 
 	upoll_unregister(poll, mqueue->fd);
 	elogd_queue_fini(&mqueue->queue);

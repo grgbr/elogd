@@ -137,6 +137,17 @@ extern struct elog_stdio elogd_stdlog;
 #define elogd_warn(_format, ...) \
 	elog_warn(&elogd_stdlog, _format, ## __VA_ARGS__)
 
+#if defined(CONFIG_ELOGD_DEBUG)
+
+#define elogd_debug(_format, ...) \
+	elog_debug(&elogd_stdlog, _format, ## __VA_ARGS__)
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+#define elogd_debug(_format, ...)
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
 /******************************************************************************
  * Logging output line allocator
  ******************************************************************************/
