@@ -60,6 +60,12 @@ void
 elogd_pipeline_on_end(struct elogd_pipeline * __restrict pipe)
 {
 	if (pipe->cnt) {
+		struct timespec            now;
+		struct timespec            boot;
+		struct stroll_dlist_node * node;
+		unsigned int               cnt = 0;
+		int                        ret __unused;
+
 		if (pipe->alive[0] != &pipe->outq) {
 			elogd_assert(elogd_queue_empty(&pipe->outq));
 			elogd_assert(!elogd_queue_empty(pipe->alive[0]));
@@ -67,10 +73,28 @@ elogd_pipeline_on_end(struct elogd_pipeline * __restrict pipe)
 			elogd_queue_move(&pipe->outq, pipe->alive[0]);
 			pipe->alive[0] = &pipe->outq;
 		}
-
 		elogd_queue_kwmerge(pipe->alive, pipe->cnt);
 
-		elogd_store_flush(&pipe->store, &pipe->outq);
+		utime_boot_now(&now);
+
+		/* Compute time of boot within the real clock time space. */
+		utime_realtime_now(&boot);
+		ret = utime_tspec_sub(&boot, &now);
+		elogd_assert(ret >= 0);
+
+		elogd_queue_foreach_node(&pipe->outq, node) {
+			struct elogd_line * line = elogd_line_from_node(node);
+			struct timespec     tstamp = line->tstamp;
+
+			utime_tspec_add_sec(&tstamp, 1);
+			if (utime_tspec_after(&tstamp, &now))
+				break;
+
+			elogd_line_fill_rfc3164(line, &boot);
+			cnt++;
+		}
+
+		elogd_store_write(&pipe->store, &pipe->outq, cnt);
 
 		pipe->cnt = 0;
 	}

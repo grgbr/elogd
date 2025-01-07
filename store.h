@@ -19,8 +19,9 @@ struct elogd_store {
 };
 
 extern void
-elogd_store_flush(struct elogd_store * __restrict store,
-                  struct elogd_queue * __restrict queue)
+elogd_store_write(struct elogd_store * __restrict store,
+                  struct elogd_queue * __restrict queue,
+                  unsigned int                    count)
 	__elogd_nonull(1, 2) __leaf;
 
 extern int

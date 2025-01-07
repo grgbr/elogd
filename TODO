@@ -17,3 +17,5 @@ rendered as \x09)
 * refine rfc line generation / fill (relocate into pipeline logic)
 
 * restructure build logic
+
+* make max number of lines (or max number of lines per queue) <= IOV_MAX / 2

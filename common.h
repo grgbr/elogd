@@ -241,12 +241,37 @@ elogd_line_from_node(const struct stroll_dlist_node * __restrict node)
 	return stroll_dlist_entry(node, struct elogd_line, node);
 }
 
-extern size_t
+static inline __elogd_nonull(1) __elogd_pure __elogd_nothrow
+size_t
+elogd_line_len(const struct elogd_line * __restrict line)
+{
+	elogd_assert(line);
+	elogd_line_assert_msg(line, line->vector);
+	elogd_assert(line->vector[ELOGD_LINE_HEAD_IOVEC].iov_base);
+
+	return line->vector[ELOGD_LINE_HEAD_IOVEC].iov_len +
+	       line->vector[ELOGD_LINE_MSG_IOVEC].iov_len;
+}
+
+static inline __elogd_nonull(1) __elogd_nothrow
+void
+elogd_line_copy_iovec(
+	const struct elogd_line * __restrict line,
+	struct iovec                         iovecs[__restrict_arr 2])
+{
+	elogd_assert(line);
+	elogd_line_assert_msg(line, line->vector);
+	elogd_assert(line->vector[ELOGD_LINE_HEAD_IOVEC].iov_base);
+
+	iovecs[0] = line->vector[ELOGD_LINE_HEAD_IOVEC];
+	iovecs[1] = line->vector[ELOGD_LINE_MSG_IOVEC];
+}
+
+extern void
 elogd_line_fill_rfc3164(
 	struct elogd_line * __restrict     line,
-	const struct timespec * __restrict boot,
-	struct iovec                       vector[__restrict_arr 2])
-	 __elogd_nonull(1, 2, 3) __elogd_nothrow __leaf __warn_result;
+	const struct timespec * __restrict boot)
+	 __elogd_nonull(1, 2) __elogd_nothrow __leaf;
 
 extern void
 elogd_line_fixup_partial(struct elogd_line * __restrict line, size_t written)
@@ -261,8 +286,9 @@ elogd_line_destroy(struct elogd_line * __restrict line)
 	__elogd_nonull(1) __elogd_nothrow __leaf;
 
 extern void
-elogd_line_destroy_bulk(struct stroll_dlist_node * lines)
-	__elogd_nonull(1) __elogd_nothrow __leaf;
+elogd_line_destroy_bulk(struct stroll_dlist_node * first,
+                        struct stroll_dlist_node * last)
+	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
 
 /******************************************************************************
  * Logging output line queue
@@ -275,7 +301,7 @@ struct elogd_queue {
 };
 
 #define elogd_queue_foreach_node(_queue, _node) \
-	stroll_dlist_foreach_node(&(_queue)->head, node)
+	stroll_dlist_foreach_node(&(_queue)->head, _node)
 
 static inline __elogd_nonull(1) __elogd_pure
 unsigned int
@@ -377,19 +403,6 @@ elogd_nqueue_presort(struct elogd_queue * __restrict       queue,
 	__elogd_nonull(1, 2) __elogd_nothrow;
 
 extern void
-elogd_dqueue_bulk(struct elogd_queue * __restrict       queue,
-                  struct stroll_dlist_node * __restrict last,
-                  struct stroll_dlist_node * __restrict lines,
-                  unsigned int                          count)
-	__elogd_nonull(1, 2, 3) __elogd_nothrow __leaf;
-
-extern void
-elogd_requeue_bulk(struct elogd_queue * __restrict       queue,
-                   struct stroll_dlist_node * __restrict lines,
-                   unsigned int                          count)
-	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
-
-extern void
 elogd_queue_move(struct elogd_queue * __restrict destination,
                  struct elogd_queue * __restrict source)
 	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
@@ -398,6 +411,12 @@ extern void
 elogd_queue_kwmerge(struct elogd_queue * queues[__restrict_arr],
                     unsigned int         count)
 	__elogd_nonull(1) __elogd_nothrow __leaf;
+
+extern void
+elogd_queue_release_bulk(struct elogd_queue * __restrict       queue,
+                         struct stroll_dlist_node * __restrict last,
+                         unsigned int                          count)
+	__elogd_nonull(1, 2) __elogd_nothrow;
 
 extern void
 elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
