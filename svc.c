@@ -391,7 +391,8 @@ elogd_svc_open(struct elogd_svc * __restrict      svc,
 	elogd_queue_init(&svc->queue, elogd_conf.svc_fetch);
 	svc->pipe = pipe;
 
-	elogd_debug("syslog service initialized.\n");
+	elogd_info("'%s' syslog service initialized.\n",
+	           elogd_conf.sock_path);
 
 	return 0;
 

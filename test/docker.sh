@@ -35,16 +35,20 @@ build_image()
 
 do_run()
 {
+	local xport="$1"
+
 	if ! image_ready; then
 		if ! build_image; then
 			return 1
 		fi
 	fi
 
+	shift 1
 	if ! docker run \
 	            --rm=true \
 	            --volume=/opt/htchain:/opt/htchain:ro \
 	            --volume=$(realpath $prefix):$(realpath $prefix):ro \
+	            --volume=$(realpath $xport):/tmp/elogd_test/log:rw \
 	            --privileged \
 	            "$@"; then
 		return 1
@@ -55,25 +59,69 @@ init_cmds=\
 'touch /dev/mqueue/elogd_test &&'\
 'chmod 640 /dev/mqueue/elogd_test'
 
-run()
+gdb()
 {
-	log_info "Running '$(realpath $prefix)/sbin/elogd $*'..."
+	local xport="$1"
 
-	if ! do_run "--tty=false" \
+	log_info "Running 'gdb --args $(realpath $prefix)/sbin/elogd $*'..."
+
+	shift 1
+	if ! do_run "$xport" \
+	            "--tty=true" \
+	            "--interactive=true" \
+	            "elogd" \
+	            "/bin/bash" \
+	            "-c" \
+	            "$init_cmds && exec gdb --args $(realpath $prefix)/sbin/elogd -o /tmp/elogd_test/log/messages $*"; then
+		return 1
+	fi
+}
+
+strace()
+{
+	local xport="$1"
+
+	log_info "Running 'strace $(realpath $prefix)/sbin/elogd $*'..."
+
+	shift 1
+	if ! do_run "$xport" \
+	            "--tty=false" \
 	            "--interactive=false" \
 	            "elogd" \
 	            "/bin/bash" \
 	            "-c" \
-	            "$init_cmds && exec $(realpath $prefix)/sbin/elogd $*"; then
+	            "$init_cmds && exec strace $(realpath $prefix)/sbin/elogd -o /tmp/elogd_test/log/messages $*"; then
+		return 1
+	fi
+}
+
+run()
+{
+	local xport="$1"
+
+	log_info "Running '$(realpath $prefix)/sbin/elogd $*'..."
+
+	shift 1
+	if ! do_run "$xport" \
+	            "--tty=false" \
+	            "--interactive=false" \
+	            "elogd" \
+	            "/bin/bash" \
+	            "-c" \
+	            "$init_cmds && exec $(realpath $prefix)/sbin/elogd -o /tmp/elogd_test/log/messages $*"; then
 		return 1
 	fi
 }
 
 shell()
 {
+	local xport="$1"
+
 	log_info "Running '/bin/bash'..."
 
-	if ! do_run "--tty=true" \
+	shift 1
+	if ! do_run "$xport" \
+	            "--tty=true" \
 	            "--interactive=true" \
 	            "elogd" \
 	            "/bin/bash" \
@@ -92,12 +140,14 @@ Run eLogd docker test.
 Where OPTIONS:
     -h | --help           this help message
 
-Where COMMAND ::= build|run|shell|help
+Where COMMAND ::= build|run|shell|strace|gdb|help
 
 With:
-    build -- build docker image
-    run   -- run docker test
-    shell -- run a shell with docker image
+    build         -- build docker image
+    run OUTDIR    -- run docker test
+    shell OUTDIR  -- run a shell with docker image
+    strace OUTDIR -- run docker test
+    gdb OUTDIR    -- run docker test
 _EOF
 }
 
@@ -121,16 +171,41 @@ elif [ "$cmd" = "build" ]; then
 		exit 1
 	fi
 	build_image
+elif [ "$cmd" = "gdb" ]; then
+	if [ $# -lt 3 ]; then
+		log_err 'invalid gdb command number of arguments.\n'
+		usage
+		exit 1
+	fi
+	outdir="$2"
+	shift 2
+	gdb "$outdir" "$@"
+elif [ "$cmd" = "strace" ]; then
+	if [ $# -lt 3 ]; then
+		log_err 'invalid strace command number of arguments.\n'
+		usage
+		exit 1
+	fi
+	outdir="$2"
+	shift 2
+	strace "$outdir" "$@"
 elif [ "$cmd" = "run" ]; then
-	shift 1
-	run "$@"
+	if [ $# -lt 3 ]; then
+		log_err 'invalid run command number of arguments.\n'
+		usage
+		exit 1
+	fi
+	outdir="$2"
+	shift 2
+	run "$outdir" "$@"
 elif [ "$cmd" = "shell" ]; then
-	if [ $# -ne 1 ]; then
+	if [ $# -ne 2 ]; then
 		log_err 'invalid shell command number of arguments.\n'
 		usage
 		exit 1
 	fi
-	shell
+	outdir="$1"
+	shell "$outdir"
 else
 	log_err "invalid '$cmd' command."
 	exit 1

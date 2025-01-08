@@ -58,8 +58,11 @@ extern gid_t elogd_gid;
 #define ELOGD_FILE_ROT_MAX  STROLL_CONCAT(CONFIG_ELOGD_ROT_MAX, U)
 #define ELOGD_FETCH_MIN     STROLL_CONCAT(CONFIG_ELOGD_FETCH_MIN, U)
 #define ELOGD_FETCH_MAX     STROLL_CONCAT(CONFIG_ELOGD_FETCH_MAX, U)
+#define ELOGD_DELAY_MIN     STROLL_CONCAT(CONFIG_ELOGD_DELAY_MIN, U)
+#define ELOGD_DELAY_MAX     STROLL_CONCAT(CONFIG_ELOGD_DELAY_MAX, U)
 #define ELOGD_SVC_MODE      STROLL_CONCAT(0, CONFIG_ELOGD_SVC_MODE)
 #define ELOGD_FILE_MODE     STROLL_CONCAT(0, CONFIG_ELOGD_FILE_MODE)
+#define ELOGD_DELAY         STROLL_CONCAT(CONFIG_ELOGD_DELAY, U)
 
 struct elogd_config {
 	const char *           user;
@@ -79,6 +82,7 @@ struct elogd_config {
 	const char *           svc_group;
 	mode_t                 svc_mode;
 	unsigned int           svc_fetch;
+	unsigned int           delay;
 	struct elog_stdio_conf stdlog;
 };
 
@@ -104,7 +108,8 @@ extern struct elogd_config elogd_conf;
 	elogd_assert(upath_validate_path_name(elogd_conf.sock_path) > 0); \
 	elogd_assert(!elogd_conf.svc_group || elogd_conf.svc_group[0]); \
 	elogd_assert(!(elogd_conf.svc_mode & ~DEFFILEMODE)); \
-	elogd_assert(elogd_conf.svc_fetch > 0)
+	elogd_assert(elogd_conf.svc_fetch > 0); \
+	elogd_assert(elogd_conf.delay > 0)
 
 /******************************************************************************
  * Various helper definitions
@@ -136,6 +141,9 @@ extern struct elog_stdio elogd_stdlog;
 
 #define elogd_warn(_format, ...) \
 	elog_warn(&elogd_stdlog, _format, ## __VA_ARGS__)
+
+#define elogd_info(_format, ...) \
+	elog_info(&elogd_stdlog, _format, ## __VA_ARGS__)
 
 #if defined(CONFIG_ELOGD_DEBUG)
 
@@ -373,6 +381,19 @@ elogd_queue_head(const struct elogd_queue * __restrict queue)
 	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
 
 	return (struct stroll_dlist_node *)&queue->head;
+}
+
+static inline __elogd_nonull(1) __elogd_pure __elogd_nothrow
+struct elogd_line *
+elogd_queue_peek(struct elogd_queue * __restrict queue)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!stroll_dlist_empty(&queue->head));
+
+	return elogd_line_from_node(stroll_dlist_next(&queue->head));
 }
 
 static inline __elogd_nonull(1, 2) __elogd_nothrow

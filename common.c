@@ -41,8 +41,8 @@ struct elogd_config elogd_conf = {
 	                               NULL,
 	                               CONFIG_ELOGD_SVC_GROUP),
 	.svc_mode     = ELOGD_SVC_MODE,
-	.svc_fetch    = CONFIG_ELOGD_SVC_FETCH
-
+	.svc_fetch    = CONFIG_ELOGD_SVC_FETCH,
+	.delay        = ELOGD_DELAY
 };
 
 /******************************************************************************
@@ -307,10 +307,7 @@ elogd_alloc_init(unsigned int nr)
 	unsigned int        l;
 	struct elogd_line * lines;
 
-	elogd_debug("initializing line allocator "
-	            "with %u lines of %zu bytes each...\n",
-	            nr,
-	            sizeof(lines[0]));
+	elogd_debug("initializing line allocator...\n");
 
 	lines = malloc(nr * sizeof(lines[0]));
 	if (!lines)
@@ -322,7 +319,10 @@ elogd_alloc_init(unsigned int nr)
 	elogd_the_alloc.lines = lines;
 	elogd_the_alloc.nr = nr;
 
-	elogd_debug("line allocator initialized.\n");
+	elogd_info("line allocator initialized "
+	           "with %u lines of %u bytes each.\n",
+	           nr,
+	           ELOGD_LINE_MAX_LEN);
 
 	return 0;
 }

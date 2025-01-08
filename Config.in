@@ -152,4 +152,20 @@ config ELOGD_ROT_NR
 	help
 	  Maximum number of archived logging output file.
 
-# ex: filetype=kconfig
+config ELOGD_DELAY_MIN
+	int
+	default 1
+
+config ELOGD_DELAY_MAX
+	int
+	default 60
+
+config ELOGD_DELAY
+	int "Message storage delay"
+	range ELOGD_DELAY_MIN ELOGD_DELAY_MAX
+	default 1
+	help
+	  Number of seconds to wait before saving a message into the message
+	  store.
+
+## ex: filetype=kconfig

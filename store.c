@@ -253,10 +253,12 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 	elogd_assert(size);
 	elogd_assert(size <= SSIZE_MAX);
 
-	struct iovec vectors[count << 1];
-	int          cnt = 0;
-	size_t       bytes = 0;
-	ssize_t      ret;
+	struct stroll_dlist_node * node;
+	struct stroll_dlist_node * last;
+	struct iovec               iovecs[count << 1];
+	unsigned int               cnt = 0;
+	size_t                     bytes = 0;
+	ssize_t                    ret;
 
 	elogd_queue_foreach_node(queue, node) {
 		struct elogd_line * line = elogd_line_from_node(node);
@@ -267,7 +269,7 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 		if ((bytes + len) > size)
 			break;
 
-		elogd_line_copy_iovec(line, &vectors[cnt << 1]);
+		elogd_line_copy_iovec(line, &iovecs[cnt << 1]);
 
 		bytes += len;
 		last = node;
@@ -280,11 +282,9 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 	if (!cnt || !bytes)
 		return -ENOSPC;
 
-	ret = ufile_writev(store->fd, vectors, cnt << 1);
+	ret = ufile_writev(store->fd, iovecs, cnt << 1);
 	if (ret > 0) {
 		elogd_assert((size_t)ret <= bytes);
-
-		struct stroll_dlist_node lines;
 
 		if ((size_t)ret == bytes)
 			/* All lines were fully written out. */
@@ -320,9 +320,8 @@ elogd_store_write(struct elogd_store * __restrict store,
 	elogd_assert((count << 1) < IOV_MAX);
 	elogd_assert(count <= elogd_queue_busy_count(queue));
 
-	unsigned int cnt;
-	size_t       maxsz;
-	int          ret;
+	size_t maxsz;
+	int    ret;
 
 	if (store->fd < 0) {
 		if (elogd_store_open_file(store))
@@ -419,6 +418,9 @@ elogd_store_open(struct elogd_store * __restrict store)
 	                                 ELOGD_FILE_SIZE_MAX /
 	                                 (size_t)stat.f_frsize);
 	elogd_conf.max_size *= stat.f_frsize;
+
+	elogd_info("'%s' logging store initialized.\n",
+	           elogd_conf.dir_path);
 
 	return 0;
 

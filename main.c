@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include <utils/file.h>
+#include <utils/time.h>
 #include <enbox/enbox.h>
 #include <sys/file.h>
 #include <getopt.h>
@@ -46,25 +47,53 @@ elogd_pipeline_on_alive(struct elogd_pipeline * __restrict pipe,
 }
 
 static __elogd_nonull(1) __elogd_nothrow
-void
+int
 elogd_pipeline_on_begin(struct elogd_pipeline * __restrict pipe)
 {
 	elogd_assert(!pipe->cnt);
 
-	if (!elogd_queue_empty(&pipe->outq))
+	if (!elogd_queue_empty(&pipe->outq)) {
 		elogd_pipeline_on_alive(pipe, &pipe->outq);
+
+		if (!elogd_queue_full(&pipe->outq)) {
+			const struct elogd_line * lead;
+			struct timespec           tstamp;
+			struct timespec           now;
+
+			lead = elogd_queue_peek(&pipe->outq);
+			tstamp = lead->tstamp;
+			utime_tspec_add_sec_clamp(&tstamp, elogd_conf.delay);
+			utime_boot_now(&now);
+			if (utime_tspec_sub(&tstamp, &now) <= 0)
+				/* There is at least 1 message to store now. */
+				return 0;
+
+			/*
+			 * Return line timestamp (in the boot time space) -
+			 * current boot time expressed as milliseconds.
+			 */
+			return utime_msec_from_tspec_upper_clamp(&tstamp);
+		}
+		else
+			/* Output queue is full: tell caller not to wait. */
+			return 0;
+	}
+	else
+		/* Tell caller to wait forever... */
+		return -1;
 }
 
 static __elogd_nonull(1) __elogd_nothrow
-void
-elogd_pipeline_on_end(struct elogd_pipeline * __restrict pipe)
+unsigned int
+elogd_pipeline_drain_queues(struct elogd_pipeline * __restrict pipe)
 {
 	if (pipe->cnt) {
 		struct timespec            now;
 		struct timespec            boot;
 		struct stroll_dlist_node * node;
+		struct elogd_line *        line;
 		unsigned int               cnt = 0;
-		int                        ret __unused;
+		int                        ret;
 
 		if (pipe->alive[0] != &pipe->outq) {
 			elogd_assert(elogd_queue_empty(&pipe->outq));
@@ -82,22 +111,50 @@ elogd_pipeline_on_end(struct elogd_pipeline * __restrict pipe)
 		ret = utime_tspec_sub(&boot, &now);
 		elogd_assert(ret >= 0);
 
-		elogd_queue_foreach_node(&pipe->outq, node) {
-			struct elogd_line * line = elogd_line_from_node(node);
-			struct timespec     tstamp = line->tstamp;
+		if (!elogd_queue_full(&pipe->outq)) {
+			 if (utime_tspec_sub_sec(&now, elogd_conf.delay) >= 0) {
+				elogd_queue_foreach_node(&pipe->outq, node) {
+					struct elogd_line * line =
+						elogd_line_from_node(node);
 
-			utime_tspec_add_sec(&tstamp, 1);
-			if (utime_tspec_after(&tstamp, &now))
-				break;
+					if (utime_tspec_after(&line->tstamp,
+					                      &now))
+						break;
 
-			elogd_line_fill_rfc3164(line, &boot);
-			cnt++;
+					elogd_line_fill_rfc3164(line, &boot);
+					cnt++;
+				}
+			}
+		}
+		else {
+			/*
+			 * Output queue is full: write as many messages as we
+			 * can...
+			 */
+			elogd_queue_foreach_node(&pipe->outq, node) {
+				line = elogd_line_from_node(node);
+				elogd_line_fill_rfc3164(line, &boot);
+				cnt++;
+			}
 		}
 
-		elogd_store_write(&pipe->store, &pipe->outq, cnt);
-
 		pipe->cnt = 0;
+
+		return cnt;
 	}
+	else
+		return 0;
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_pipeline_on_end(struct elogd_pipeline * __restrict pipe)
+{
+	unsigned int cnt;
+
+	cnt = elogd_pipeline_drain_queues(pipe);
+	if (cnt)
+		elogd_store_write(&pipe->store, &pipe->outq, cnt);
 }
 
 static __elogd_nonull(1, 2)
@@ -140,6 +197,12 @@ elogd_pipeline_open(struct elogd_pipeline * __restrict pipe,
 	err = elogd_store_open(&pipe->store);
 	if (err)
 		goto close_mqueue;
+
+	/*
+	 * Some queue may have switched to active state at opening time. Make
+	 * sure that these are drained into output queue.
+	 */
+	elogd_pipeline_drain_queues(pipe);
 
 	elogd_debug("pipeline started...\n");
 
@@ -490,6 +553,30 @@ elogd_parse_stdlog(const char * __restrict        arg,
 	return EXIT_SUCCESS;
 }
 
+static __elogd_nonull(1, 2)
+int
+elogd_parse_delay(const char * __restrict   arg,
+                  unsigned int * __restrict delay)
+{
+	elogd_assert(arg);
+	elogd_assert(delay);
+
+	int err;
+
+	err = ustr_parse_uint_range(arg,
+	                            delay,
+	                            ELOGD_DELAY_MIN,
+	                            ELOGD_DELAY_MAX);
+	if (err) {
+		elogd_early_err("invalid delay: %s (%d).\n",
+		                strerror(-err),
+		                -err);
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
+}
+
 #define USAGE \
 "Usage: %1$s [OPTIONS]\n" \
 "eLogd early system logging daemon.\n" \
@@ -533,6 +620,10 @@ elogd_parse_stdlog(const char * __restrict        arg,
 "                             syslog socket to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SVC_FETCH) ")\n" \
+"    -d|--delay SECONDS    -- set time to wait before saving a message into the\n" \
+"                             message store to SECONDS seconds\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_DELAY_MIN) " <= SECONDS <= " STROLL_STRING(CONFIG_ELOGD_DELAY_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_DELAY) ")\n" \
 "    -v|--stdlog LEVEL     -- set standard output log level\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
 "    -h|--help             -- this help message\n"
@@ -592,7 +683,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 
 		opt = getopt_long(argc,
 		                  argv,
-		                  ":u::l:s:k:n:q:o:e::m:z:r:p:b::c:f:v:h",
+		                  ":u::l:s:k:n:q:o:e::m:z:r:p:b::c:f:d:v:h",
 		                  opts,
 		                  NULL);
 		if (opt < 0)
@@ -691,6 +782,11 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			if (elogd_parse_fetch_count(optarg,
 			                            "syslog socket",
 			                            &elogd_conf.svc_fetch))
+				goto out;
+			break;
+
+		case 'd':
+			if (elogd_parse_delay(optarg, &elogd_conf.delay))
 				goto out;
 			break;
 
@@ -875,22 +971,38 @@ main(int argc, char * const argv[])
 	if (elogd_pipeline_open(&pipe, &poll))
 		goto close_sigs;
 
-	elogd_debug("processing messages...\n");
+	elogd_info("processing messages...\n");
 	do {
-		elogd_pipeline_on_begin(&pipe);
+		int tmout;
 
-		ret = upoll_process(&poll, -1);
-		if (ret == -EINTR) {
-			/* ignore signals interrupts (i.e. ptrace(2) related) */
+		tmout = elogd_pipeline_on_begin(&pipe);
+
+		ret = upoll_process(&poll, tmout);
+		switch (ret) {
+		case 0:
+		case -ESHUTDOWN:
+			elogd_pipeline_on_end(&pipe);
+			break;
+
+		case -ETIME:
 			ret = 0;
-			continue;
-		}
-		elogd_assert(!ret || (ret == -ESHUTDOWN));
+			elogd_pipeline_on_end(&pipe);
+			break;
 
-		elogd_pipeline_on_end(&pipe);
+		case -EINTR:
+			/*
+			 * Ignore signals interrupts (i.e. ptrace(2) related)
+			 */
+			ret = 0;
+			break;
+
+		default:
+			elogd_assert(0);
+		}
 	} while (!ret);
 
-	ret = (ret == -ESHUTDOWN) ? EXIT_SUCCESS : EXIT_FAILURE;
+	elogd_assert(ret == -ESHUTDOWN);
+	ret = EXIT_SUCCESS;
 
 	elogd_pipeline_close(&pipe, &poll);
 

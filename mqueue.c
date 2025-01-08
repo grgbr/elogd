@@ -240,7 +240,8 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict   mqueue,
 	mqueue->pipe = pipe;
 	mqueue->fd = fd;
 
-	elogd_debug("message queue initialized.\n");
+	elogd_info("'%s' message queue initialized.\n",
+	           elogd_conf.mqueue_name);
 
 	return 0;
 
