@@ -18,7 +18,7 @@ struct elogd_store {
 	char * base;
 };
 
-extern void
+extern int
 elogd_store_write(struct elogd_store * __restrict store,
                   struct elogd_queue * __restrict queue,
                   unsigned int                    count)

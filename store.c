@@ -103,7 +103,7 @@ err:
 }
 
 static __elogd_nonull(1)
-void
+int
 elogd_store_rotate(struct elogd_store * __restrict store)
 {
 	elogd_assert_conf();
@@ -122,6 +122,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 	size_t       len = elogd_conf.file_len + 1;
 	char *       nevv = &store->base[elogd_store_file_name_max()];
 	int          err;
+	int          ret;
 
 	err = ufile_sync(store->fd);
 	if (err)
@@ -170,7 +171,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 		           -err);
 
 	/* Open / create a new primary logging output file. */
-	elogd_store_open_file(store);
+	ret = elogd_store_open_file(store);
 
 	/*
 	 * Finally flush parent directory to make changes visible to external
@@ -182,6 +183,8 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 		           elogd_conf.dir_path,
 		           strerror(-err),
 		           -err);
+
+	return ret;
 }
 
 static __elogd_nonull(1, 2) __elogd_nothrow
@@ -280,32 +283,50 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 	}
 
 	if (!cnt || !bytes)
-		return -ENOSPC;
+		return -EMSGSIZE;
 
 	ret = ufile_writev(store->fd, iovecs, cnt << 1);
-	if (ret > 0) {
+	if (ret >= 0) {
 		elogd_assert((size_t)ret <= bytes);
 
-		if ((size_t)ret == bytes)
+		store->size += ret;
+
+		if ((size_t)ret == bytes) {
 			/* All lines were fully written out. */
 			elogd_queue_release_bulk(queue, last, cnt);
-		else
+			return 0;
+		}
+
+		if (ret != 0)
 			/* Lines were partially written. */
 			elogd_store_complete_partial_writev(queue,
 			                                    iovecs,
 			                                    cnt,
 			                                    ret);
-		return ret;
+		return -EAGAIN;
 	}
 
-	elogd_assert(ret != -EAGAIN);
 	elogd_assert(ret != -EINTR);
-	elogd_assert(ret != -EINVAL);
 
 	return ret;
 }
 
-void
+static __elogd_nonull(1) __elogd_pure __elogd_nothrow
+size_t
+elogd_store_free_size(const struct elogd_store * __restrict store)
+{
+	if (elogd_conf.max_rot > 1) {
+		size_t sz = elogd_conf.max_size -
+		            stroll_min(store->size, elogd_conf.max_size);
+		return (sz > (ELOGD_HEAD_MIN_SIZE - 1 + sizeof('\n'))) ?
+		       sz :
+		       0;
+	}
+	else
+		return (size_t)SSIZE_MAX;
+}
+
+int
 elogd_store_write(struct elogd_store * __restrict store,
                   struct elogd_queue * __restrict queue,
                   unsigned int                    count)
@@ -324,39 +345,34 @@ elogd_store_write(struct elogd_store * __restrict store,
 	int    ret;
 
 	if (store->fd < 0) {
-		if (elogd_store_open_file(store))
-			return;
+		ret = elogd_store_open_file(store);
+		if (ret)
+			return ret;
 	}
 
-	if (elogd_conf.max_rot > 1) {
-		maxsz = elogd_conf.max_size - stroll_min(store->size,
-		                                         elogd_conf.max_size);
-		if (maxsz <= (ELOGD_HEAD_MIN_SIZE - 1 + sizeof('\n')))
-			goto rotate;
-	}
+	maxsz = elogd_store_free_size(store);
+	if (maxsz > 0)
+		ret = elogd_store_write_queue(store, queue, count, maxsz);
 	else
-		maxsz = SSIZE_MAX;
+		ret = -EMSGSIZE;
 
-	ret = elogd_store_write_queue(store, queue, count, maxsz);
-	elogd_assert(ret);
-	if (ret > 0) {
-		store->size += ret;
-		return;
+	if (ret == -EMSGSIZE) {
+		ret = elogd_store_rotate(store);
+		if (ret)
+			return ret;
+		maxsz = elogd_store_free_size(store);
+
+		ret = elogd_store_write_queue(store, queue, count, maxsz);
 	}
 
-	if (ret == -ENOSPC)
-		goto rotate;
+	if (ret && (ret != -EAGAIN))
+		elogd_warn("'%s/%s': write to logging store failed: %s (%d).\n",
+		           elogd_conf.dir_path,
+		           store->base,
+		           strerror(-ret),
+		           -ret);
 
-	elogd_warn("'%s/%s': cannot flush logging file: %s (%d).\n",
-	           elogd_conf.dir_path,
-	           store->base,
-	           strerror(-ret),
-	           -ret);
-
-	return;
-
-rotate:
-	elogd_store_rotate(store);
+	return ret;
 }
 
 int
