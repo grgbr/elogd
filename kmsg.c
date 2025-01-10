@@ -562,7 +562,7 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
 	if (elogd_queue_busy_count(&kmsg->queue))
 		elogd_pipeline_on_alive(pipe, &kmsg->queue);
 
-	elogd_debug("kernel ring-buffer initialized.\n");
+	elogd_info("kernel ring-buffer initialized.\n");
 
 	return 0;
 
