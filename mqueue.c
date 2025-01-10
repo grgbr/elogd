@@ -7,6 +7,7 @@
 
 #include "mqueue.h"
 #include <utils/fd.h>
+#include <utils/time.h>
 
 #define ELOG_MQUEUE_MIN_LEN \
 	(sizeof(struct elog_mqueue_head) + \
@@ -38,9 +39,10 @@ elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
 	return 0;
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1, 2) __elogd_nothrow
 int
-elogd_mqueue_parse(struct elogd_line * __restrict line)
+elogd_mqueue_parse(struct elogd_line * __restrict      line,
+                   const struct timespec *  __restrict real_off)
 {
 	elogd_assert(line);
 	elogd_assert(line->vector[ELOGD_LINE_MSG_IOVEC].iov_len >=
@@ -54,8 +56,13 @@ elogd_mqueue_parse(struct elogd_line * __restrict line)
 	if (blen < 0)
 		return blen;
 
-	/* Messages are assigned a timestamp within the boot time space. */
+	/*
+	 * Messages are assigned a timestamp within the boot time space: convert
+	 * them into the realtime clock space.
+	 */
 	line->tstamp = head->tstamp;
+	utime_tspec_add_clamp(&line->tstamp, real_off);
+
 	line->facility = head->prio & LOG_FACMASK;
 	line->severity = head->prio & LOG_PRIMASK;
 	line->tag_len = head->body;
@@ -71,38 +78,39 @@ elogd_mqueue_parse(struct elogd_line * __restrict line)
 	return 0;
 }
 
-static __elogd_nonull(1)
+static __elogd_nonull(1, 2, 3)
 int
 elogd_mqueue_process(struct elogd_mqueue * __restrict      mqueue,
+                     const struct timespec *  __restrict   real_off,
                      struct stroll_dlist_node * __restrict messages)
 {
 	elogd_assert(mqueue);
 	elogd_assert(mqueue->fd >= 0);
 
-	struct elogd_line * ln;
+	struct elogd_line * line;
 	int                 ret;
 
-	ln = elogd_line_create();
-	if (!ln)
+	line = elogd_line_create();
+	if (!line)
 		return -ENOBUFS;
 
-	ret = elogd_mqueue_read(mqueue, ln);
+	ret = elogd_mqueue_read(mqueue, line);
 	if (ret)
 		goto release;
 
-	ret = elogd_mqueue_parse(ln);
+	ret = elogd_mqueue_parse(line, real_off);
 	if (ret)
 		goto release;
 
 	stroll_dlist_insert_inorder_back(messages,
-	                                 &ln->node,
+	                                 &line->node,
 	                                 elogd_queue_line_cmp,
 	                                 NULL);
 
 	return 0;
 
 release:
-	elogd_line_destroy(ln);
+	elogd_line_destroy(line);
 
 	return ret;
 }
@@ -134,12 +142,15 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
 	nr = elogd_queue_free_count(&mqueue->queue);
 	if (nr) {
 		struct stroll_dlist_node tmp = STROLL_DLIST_INIT(tmp);
+		struct timespec          toff;
 		unsigned int             cnt = 0;
+
+		elogd_realtime_offset(&toff);
 
 		do {
 			int ret;
 
-			ret = elogd_mqueue_process(mqueue, &tmp);
+			ret = elogd_mqueue_process(mqueue, &toff, &tmp);
 			switch (ret) {
 			case 0:
 				/*

@@ -169,24 +169,24 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	/* Parse priority tag. */
 	data = elogd_kmsg_parse_prio(line, data);
 	if (!data)
-		return -EINVAL;
+		goto err;
 
 	/* Parse the 64 bits long sequence number. */
 	data = elogd_kmsg_parse_seqno(data, seqno);
 	if (!data)
-		return -EINVAL;
+		goto err;
 
 	/* Parse monotonic timestamp. */
 	data = elogd_kmsg_parse_tstamp(line, data);
 	if (!data)
-		return -EINVAL;
+		goto err;
 
 	/* Skip remaining fields up to next semi-colon. */
 	data = elogd_skip_field(data, ';', end - data);
 	if (!data)
-		return -EINVAL;
+		goto err;
 
-	/* Parse message body. */
+	/* Parse and skip empty message body. */
 	end = elogd_skip_field(data, '\n', end - data);
 	if (!end)
 		return -EINVAL;
@@ -211,6 +211,11 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	msg->iov_len = end - data;
 
 	return 0;
+
+err:
+	elogd_warn("kernel ring-buffer parsing failed: unexpected message.\n");
+
+	return -EINVAL;
 }
 
 static __elogd_nonull(1, 2) __elogd_nothrow
@@ -246,47 +251,56 @@ elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
 		line->data[ret] = '\0';
 		return 0;
 	}
+	else if (!ret || (ret == -EAGAIN))
+		return -EAGAIN;
 
-	return (!ret) ? -EAGAIN : ret;
+	elogd_warn("kernel ring-buffer read failed: %s (%d).\n",
+	           strerror((int)-ret),
+	           (int)-ret);
+
+	return ret;
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1, 2) __elogd_nothrow
 int
-elogd_kmsg_process(struct elogd_kmsg * __restrict kmsg)
+elogd_kmsg_process(struct elogd_kmsg * __restrict     kmsg,
+                   const struct timespec * __restrict real_off)
 {
 	elogd_assert(kmsg);
 	elogd_assert(kmsg->dev_fd >= 0);
 	elogd_assert(kmsg->seqno);
 	elogd_assert(kmsg->stat_fd >= 0);
 
-	struct elogd_line * ln;
+	struct elogd_line * line;
 	uint64_t            seqno;
 	int                 ret;
 
-	ln = elogd_line_create();
-	if (!ln)
+	line = elogd_line_create();
+	if (!line)
 		return -ENOBUFS;
 
-	ret = elogd_kmsg_read(kmsg, ln);
+	ret = elogd_kmsg_read(kmsg, line);
 	if (ret)
 		goto release;
 
-	ret = elogd_kmsg_parse(ln, &seqno);
+	ret = elogd_kmsg_parse(line, &seqno);
 	if (ret)
 		goto release;
 
 	*kmsg->seqno = seqno;
 
 	/*
-	 * No need to reorder lines with respect to timestamp for kernel
-	 * messages.
+	 * Kernel messages are already ordered within the boot time space.
+	 * Convert timestamp into the realtime clock space and queue the
+	 * message.
 	 */
-	elogd_nqueue(&kmsg->queue, ln);
+	utime_tspec_add_clamp(&line->tstamp, real_off);
+	elogd_nqueue(&kmsg->queue, line);
 
 	return 0;
 
 release:
-	elogd_line_destroy(ln);
+	elogd_line_destroy(line);
 
 	return ret;
 }
@@ -317,21 +331,27 @@ elogd_kmsg_dispatch(struct upoll_worker * work,
 	elogd_assert(kmsg->stat_fd >= 0);
 
 	cnt = elogd_queue_free_count(&kmsg->queue);
-	while (cnt--) {
-		int ret;
+	if (cnt) {
+		struct timespec toff;
 
-		ret = elogd_kmsg_process(kmsg);
-		switch (ret) {
-		case 0:
-			break;
+		elogd_realtime_offset(&toff);
 
-		case -ENOBUFS:
-		case -EAGAIN:
-			goto publish;
+		do {
+			int ret;
 
-		default:
-			elogd_assert(0);
-		}
+			ret = elogd_kmsg_process(kmsg, &toff);
+			switch (ret) {
+			case 0:
+				break;
+
+			case -ENOBUFS:
+			case -EAGAIN:
+				goto publish;
+
+			default:
+				break;
+			}
+		} while (--cnt);
 	}
 
 publish:
@@ -341,7 +361,7 @@ publish:
 	return 0;
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1, 2) __elogd_nothrow
 int
 elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 {
@@ -350,21 +370,22 @@ elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 	elogd_assert(kmsg->seqno);
 	elogd_assert(kmsg->stat_fd >= 0);
 
-	struct elogd_line * ln;
+	struct elogd_line * line;
 	uint64_t            seqno;
+	struct timespec     toff;
 	int                 ret;
 
-	ln = elogd_line_create();
-	if (!ln)
+	line = elogd_line_create();
+	if (!line)
 		return -ENOBUFS;
 
 	do {
-		ret = elogd_kmsg_read(kmsg, ln);
+		ret = elogd_kmsg_read(kmsg, line);
 		elogd_assert(ret != -EINTR);
 		if (ret)
 			break;
 
-		ret = elogd_kmsg_parse(ln, &seqno);
+		ret = elogd_kmsg_parse(line, &seqno);
 		if (ret)
 			break;
 	} while (seqno <= *kmsg->seqno);
@@ -379,13 +400,19 @@ elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 
 	*kmsg->seqno = seqno;
 
-	/* Messages are already ordered within the boot time space. */
-	elogd_nqueue(&kmsg->queue, ln);
+	/*
+	 * Kernel messages are already ordered within the boot time space.
+	 * Convert timestamp into the realtime clock space and queue the
+	 * message.
+	 */
+	elogd_realtime_offset(&toff);
+	utime_tspec_add_clamp(&line->tstamp, &toff);
+	elogd_nqueue(&kmsg->queue, line);
 
 	return 0;
 
 release:
-	elogd_line_destroy(ln);
+	elogd_line_destroy(line);
 
 	return ret;
 }

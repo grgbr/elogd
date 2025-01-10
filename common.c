@@ -49,6 +49,26 @@ struct elogd_config elogd_conf = {
  * Various helpers.
  ******************************************************************************/
 
+void
+elogd_realtime_offset(struct timespec * __restrict offset)
+{
+	struct timespec boot;
+
+	utime_realtime_now(offset);
+	utime_boot_now(&boot);
+
+	if (utime_tspec_after(offset, &boot)) {
+		int ret __unused;
+
+		ret = utime_tspec_sub(offset, &boot);
+		elogd_assert(ret >= 0);
+	}
+	else {
+		offset->tv_sec = 0;
+		offset->tv_nsec = 0;
+	}
+}
+
 static __elogd_nonull(1) __elogd_nothrow
 size_t
 elogd_fill_rfc3164_prio(char * __restrict head,
@@ -147,28 +167,22 @@ elogd_line_reset(struct elogd_line * __restrict line)
 }
 
 void
-elogd_line_fill_rfc3164(
-	struct elogd_line * __restrict     line,
-	const struct timespec * __restrict boot)
+elogd_line_fill_rfc3164(struct elogd_line * __restrict line)
 {
 	elogd_assert(line);
 	elogd_line_assert_msg(line, line->vector);
-	elogd_assert_tspec(boot);
 
 	struct iovec * vecs = line->vector;
 
 	if (!vecs[ELOGD_LINE_HEAD_IOVEC].iov_base) {
 		/* Compute and fill RFC3164 compliant line header. */
-		struct timespec tstamp = line->tstamp;
 		char *          head = line->head;
 		size_t          len;
-
-		utime_tspec_add_clamp(&tstamp, boot);
 
 		len = elogd_fill_rfc3164_prio(head,
 		                              line->facility,
 		                              line->severity);
-		len += elogd_fill_rfc3339_time(&head[len], &tstamp);
+		len += elogd_fill_rfc3339_time(&head[len], &line->tstamp);
 
 		if (line->tag_len) {
 			line->tag_len = stroll_min(line->tag_len,

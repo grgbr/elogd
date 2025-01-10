@@ -1,6 +1,7 @@
 #!/bin/sh -e
 
-prefix="$HOME/devel/tidor/out/root"
+prefix="$HOME/devel/test/out/root"
+sources="$HOME/devel/icsw"
 
 log_err()
 {
@@ -48,6 +49,7 @@ do_run()
 	            --rm=true \
 	            --volume=/opt/htchain:/opt/htchain:ro \
 	            --volume=$(realpath $prefix):$(realpath $prefix):ro \
+	            --volume=$(realpath $sources):$(realpath $sources):ro \
 	            --volume=$(realpath $xport):/tmp/elogd_test/log:rw \
 	            --privileged \
 	            "$@"; then
@@ -190,7 +192,7 @@ elif [ "$cmd" = "strace" ]; then
 	shift 2
 	strace "$outdir" "$@"
 elif [ "$cmd" = "run" ]; then
-	if [ $# -lt 3 ]; then
+	if [ $# -lt 2 ]; then
 		log_err 'invalid run command number of arguments.\n'
 		usage
 		exit 1

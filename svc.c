@@ -228,8 +228,8 @@ elogd_svc_parse(struct elogd_line * __restrict line)
 	if (elogd_svc_parse_tag(line, data, mark - data))
 		return -EINVAL;
 
-	/* Assign message a timestamp within the boot time space. */
-	utime_boot_now(&line->tstamp);
+	/* Assign message a timestamp within the realtime clock space. */
+	utime_realtime_now(&line->tstamp);
 
 	return 0;
 }

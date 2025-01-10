@@ -252,6 +252,7 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 	elogd_assert(queue);
 	elogd_assert(count);
 	elogd_assert((count << 1) < IOV_MAX);
+	elogd_assert(queue);
 	elogd_assert(count <= elogd_queue_busy_count(queue));
 	elogd_assert(size);
 	elogd_assert(size <= SSIZE_MAX);
@@ -339,6 +340,7 @@ elogd_store_write(struct elogd_store * __restrict store,
 	elogd_assert(store->base[elogd_conf.file_len] == '.');
 	elogd_assert(count);
 	elogd_assert((count << 1) < IOV_MAX);
+	elogd_assert(queue);
 	elogd_assert(count <= elogd_queue_busy_count(queue));
 
 	size_t maxsz;
