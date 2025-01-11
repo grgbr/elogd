@@ -8,3 +8,9 @@ rendered as \x09)
 * return error upon unknown user group at file creations ??
 
 * drop duplicates ?
+
+* move to slist impl
+
+* internal message queue support
+
+* switch back to boot time space as default timestamping strategy

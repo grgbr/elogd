@@ -457,15 +457,4 @@ elogd_queue_fini(const struct elogd_queue * __restrict queue __unused)
 	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
 }
 
-/******************************************************************************
- * Pipeline active queue event publisher
- ******************************************************************************/
-
-struct elogd_pipeline;
-
-extern void
-elogd_pipeline_on_alive(struct elogd_pipeline * __restrict pipeline,
-                        struct elogd_queue * __restrict    queue)
-	__elogd_nonull(1, 2) __elogd_nothrow __leaf;
-
 #endif /* _ELOGD_COMMON_H */

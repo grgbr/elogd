@@ -6,6 +6,7 @@
  ******************************************************************************/
 
 #include "kmsg.h"
+#include "pipe.h"
 #include <utils/time.h>
 #include <utils/file.h>
 #include <ctype.h>
@@ -362,7 +363,7 @@ elogd_kmsg_dispatch(struct upoll_worker * work,
 
 publish:
 	if (elogd_queue_busy_count(&kmsg->queue))
-		elogd_pipeline_on_alive(kmsg->pipe, &kmsg->queue);
+		elogd_pipe_on_alive(kmsg->pipe, &kmsg->queue);
 
 	return 0;
 }
@@ -507,9 +508,9 @@ err:
 }
 
 int
-elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
-                struct elogd_pipeline * __restrict pipe,
-                const struct upoll * __restrict    poll)
+elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
+                struct elogd_pipe * __restrict  pipe,
+                const struct upoll * __restrict poll)
 {
 	elogd_assert(kmsg);
 	elogd_assert(pipe);
@@ -566,7 +567,7 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
 
 	kmsg->pipe = pipe;
 	if (elogd_queue_busy_count(&kmsg->queue))
-		elogd_pipeline_on_alive(pipe, &kmsg->queue);
+		elogd_pipe_on_alive(pipe, &kmsg->queue);
 
 	elogd_info("kernel ring-buffer initialized.\n");
 

@@ -6,6 +6,7 @@
  ******************************************************************************/
 
 #include "svc.h"
+#include "pipe.h"
 #include <utils/time.h>
 #include <utils/pwd.h>
 
@@ -345,16 +346,16 @@ elogd_svc_dispatch(struct upoll_worker * work,
 
 publish:
 	if (elogd_queue_busy_count(&svc->queue))
-		elogd_pipeline_on_alive(svc->pipe, &svc->queue);
+		elogd_pipe_on_alive(svc->pipe, &svc->queue);
 
 	return 0;
 }
 
 
 int
-elogd_svc_open(struct elogd_svc * __restrict      svc,
-               struct elogd_pipeline * __restrict pipe,
-               const struct upoll * __restrict    poll)
+elogd_svc_open(struct elogd_svc * __restrict   svc,
+               struct elogd_pipe * __restrict  pipe,
+               const struct upoll * __restrict poll)
 {
 	elogd_assert(svc);
 	elogd_assert(pipe);

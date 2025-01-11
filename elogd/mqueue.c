@@ -6,6 +6,7 @@
  ******************************************************************************/
 
 #include "mqueue.h"
+#include "pipe.h"
 #include <utils/fd.h>
 #include <utils/time.h>
 
@@ -192,15 +193,15 @@ sort:
 	}
 
 	if (elogd_queue_busy_count(&mqueue->queue))
-		elogd_pipeline_on_alive(mqueue->pipe, &mqueue->queue);
+		elogd_pipe_on_alive(mqueue->pipe, &mqueue->queue);
 
 	return 0;
 }
 
 int
-elogd_mqueue_open(struct elogd_mqueue * __restrict   mqueue,
-                  struct elogd_pipeline * __restrict pipe,
-                  const struct upoll * __restrict    poll)
+elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
+                  struct elogd_pipe * __restrict   pipe,
+                  const struct upoll * __restrict  poll)
 {
 	elogd_assert_conf();
 	elogd_assert(mqueue);

@@ -11,20 +11,22 @@
 #include "common.h"
 #include <utils/poll.h>
 
+struct elogd_pipe;
+
 /* Kernel ring-buffer processor. */
 struct elogd_kmsg {
-	struct elogd_queue      queue;
-	struct upoll_worker     work;
-	struct elogd_pipeline * pipe;
-	int                     dev_fd;
-	uint64_t *              seqno;
-	int                     stat_fd;
+	struct elogd_queue  queue;
+	struct upoll_worker work;
+	struct elogd_pipe * pipe;
+	int                 dev_fd;
+	uint64_t *          seqno;
+	int                 stat_fd;
 };
 
 extern int
-elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
-                struct elogd_pipeline * __restrict pipe,
-                const struct upoll * __restrict    poll)
+elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
+                struct elogd_pipe * __restrict  pipe,
+                const struct upoll * __restrict poll)
 	__elogd_nonull(1, 2, 3) __leaf;
 
 extern void
