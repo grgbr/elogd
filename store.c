@@ -287,6 +287,8 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 		return -EMSGSIZE;
 
 	ret = ufile_writev(store->fd, iovecs, cnt << 1);
+	elogd_assert(ret != -EINTR);
+	elogd_assert(ret != -EAGAIN);
 	if (ret >= 0) {
 		elogd_assert((size_t)ret <= bytes);
 
@@ -295,19 +297,15 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 		if ((size_t)ret == bytes) {
 			/* All lines were fully written out. */
 			elogd_queue_release_bulk(queue, last, cnt);
-			return 0;
 		}
-
-		if (ret != 0)
+		else if (ret != 0)
 			/* Lines were partially written. */
 			elogd_store_complete_partial_writev(queue,
 			                                    iovecs,
 			                                    cnt,
 			                                    ret);
-		return -EAGAIN;
+		return 0;
 	}
-
-	elogd_assert(ret != -EINTR);
 
 	return ret;
 }
@@ -367,7 +365,7 @@ elogd_store_write(struct elogd_store * __restrict store,
 		ret = elogd_store_write_queue(store, queue, count, maxsz);
 	}
 
-	if (ret && (ret != -EAGAIN))
+	if (ret)
 		elogd_warn("'%s/%s': write to logging store failed: %s (%d).\n",
 		           elogd_conf.dir_path,
 		           store->base,

@@ -486,7 +486,7 @@ elogd_queue_kwmerge(struct elogd_queue * queues[__restrict_arr],
                     unsigned int         count)
 {
 	elogd_assert(queues);
-	elogd_assert(count);
+	elogd_assert(count > 1);
 
 	unsigned int               q;
 	unsigned int               cnt;

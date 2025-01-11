@@ -5,11 +5,6 @@ line options !
 * make sure all printable characters are properly rendered (tab is actually
 rendered as \x09)
 
-* delay line flush to store by a configurable amount of seconds and try to flush
-  by a configurable amount of bytes
-
-* make initial messages are properly ordered on first loop iteration
-
 * return error upon unknown user group at file creations ??
 
 * drop duplicates ?

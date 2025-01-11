@@ -30,54 +30,124 @@
  * Message pipeline handling
  ******************************************************************************/
 
+/* Number of "pollable" message queues. */
+#define ELOGD_PIPELINE_POLL_NR (3U)
+
 struct elogd_pipeline {
-	bool                 starting;
+	/* Count of active message queues. */
 	unsigned int         cnt;
-	struct elogd_queue * alive[4];
+	/*
+	 * Array of active message queues: 1 array slot for each "pollable"
+	 * input message source queue + 1 for output queue.
+	 */
+	struct elogd_queue * alive[ELOGD_PIPELINE_POLL_NR + 1];
+	/* Output message queue used as input to message store. */
 	struct elogd_queue   outq;
+	/* Kernel ring-buffer pollable message source. */
 	struct elogd_kmsg    kmsg;
+	/* Syslog socket based service pollable message source. */
 	struct elogd_svc     svc;
+	/* POSIX message queue based service pollable message source. */
 	struct elogd_mqueue  mqueue;
+	/* Output message store. */
 	struct elogd_store   store;
 };
 
+/*
+ * Mark a message queue as active, i.e., containing messages that have not yet
+ * travelled to the message store.
+ */
 void
 elogd_pipeline_on_alive(struct elogd_pipeline * __restrict pipe,
                         struct elogd_queue *    __restrict queue)
 {
+	elogd_assert(pipe);
+
 	pipe->alive[pipe->cnt++] = queue;
 }
 
+/* Reset active message queue tracking logic. */
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_pipeline_reset_alive(struct elogd_pipeline * __restrict pipe)
+{
+	elogd_assert(pipe);
+
+	/* Reset count of active queues. */
+	pipe->cnt = 0;
+
+	if (!elogd_queue_empty(&pipe->outq))
+		/*
+		 * Output message queue contains partially processed messages:
+		 * mark it as active.
+		 */
+		elogd_pipeline_on_alive(pipe, &pipe->outq);
+}
+
+/*
+ * Merge active queue messages according to time ordering into output message
+ * queue.
+ * All active queues already contain messages (pre)sorted according to time
+ * ordering.
+ */
 static __elogd_nonull(1) __elogd_nothrow
 void
 elogd_pipeline_merge_queues(struct elogd_pipeline * __restrict pipe)
 {
+	elogd_assert(pipe);
 	elogd_assert(pipe->cnt);
+	elogd_assert(pipe->alive[0]);
 
 	if (pipe->alive[0] != &pipe->outq) {
+		/*
+		 * Output queue is not alive, i.e., empty. Move messages from
+		 * first active source queue into it.
+		 */
 		elogd_assert(elogd_queue_empty(&pipe->outq));
 		elogd_assert(!elogd_queue_empty(pipe->alive[0]));
 
 		elogd_queue_move(&pipe->outq, pipe->alive[0]);
-		pipe->alive[0] = &pipe->outq;
 	}
 
-	elogd_queue_kwmerge(pipe->alive, pipe->cnt);
+	if (pipe->cnt > 1) {
+		/*
+		 * Merging is required since more that 1 queue are active.
+		 * Make the output queue the resulting merged queue, placing it
+		 * at first slot position in the `alive' array, then do the
+		 * merge.
+		 */
+		pipe->alive[0] = &pipe->outq;
+		elogd_queue_kwmerge(pipe->alive, pipe->cnt);
+	}
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_pipeline_flush_outq(struct elogd_pipeline * __restrict pipe)
+{
+	elogd_assert(pipe);
+
+	struct stroll_dlist_node * node;
+
+	elogd_queue_foreach_node(&pipe->outq, node)
+		elogd_line_fill_rfc3164(elogd_line_from_node(node));
 }
 
 static __elogd_nonull(1) __elogd_nothrow
 unsigned int
 elogd_pipeline_fulfill_outq(struct elogd_pipeline * __restrict pipe)
 {
-	struct stroll_dlist_node * node;
-	struct elogd_line *        line;
-	unsigned int               cnt = 0;
+	elogd_assert(pipe);
+
+	unsigned int cnt = 0;
 
 	if (!elogd_queue_full(&pipe->outq)) {
 		struct timespec now;
 
 		utime_realtime_now(&now);
 		if (utime_tspec_sub_sec(&now, elogd_conf.delay) >= 0) {
+			struct stroll_dlist_node * node;
+
 			elogd_queue_foreach_node(&pipe->outq, node) {
 				struct elogd_line * line =
 					elogd_line_from_node(node);
@@ -92,14 +162,11 @@ elogd_pipeline_fulfill_outq(struct elogd_pipeline * __restrict pipe)
 	}
 	else {
 		/*
-		 * Output queue is full: write as many messages as we
-		 * can...
+		 * Output queue is full: prepare as many messages as we
+		 * can for later submission to message store.
 		 */
-		elogd_queue_foreach_node(&pipe->outq, node) {
-			line = elogd_line_from_node(node);
-			elogd_line_fill_rfc3164(line);
-			cnt++;
-		}
+		elogd_pipeline_flush_outq(pipe);
+		cnt = elogd_queue_busy_count(&pipe->outq);
 	}
 
 	return cnt;
@@ -114,8 +181,10 @@ elogd_pipeline_process_starting(struct elogd_pipeline * __restrict pipe)
 	if (pipe->cnt)
 		elogd_pipeline_merge_queues(pipe);
 
-	if (((pipe->cnt <= 1) && !elogd_queue_empty(&pipe->outq)) ||
+	if (((pipe->cnt == 1) && (pipe->alive[0] == &pipe->outq)) ||
 	    elogd_queue_full(&pipe->outq)) {
+		elogd_assert(!elogd_queue_empty(&pipe->outq));
+
 		int cnt;
 
 		cnt = elogd_pipeline_fulfill_outq(pipe);
@@ -125,9 +194,7 @@ elogd_pipeline_process_starting(struct elogd_pipeline * __restrict pipe)
 		started = true;
 	}
 
-	pipe->cnt = 0;
-	if (!elogd_queue_empty(&pipe->outq))
-		elogd_pipeline_on_alive(pipe, &pipe->outq);
+	elogd_pipeline_reset_alive(pipe);
 
 	return started;
 }
@@ -175,11 +242,32 @@ elogd_pipeline_process_running(struct elogd_pipeline * __restrict pipe)
 		if (cnt)
 			elogd_store_write(&pipe->store, &pipe->outq, cnt);
 
-		pipe->cnt = 0;
+		elogd_pipeline_reset_alive(pipe);
+	}
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+int
+elogd_pipeline_stop(struct elogd_pipeline * __restrict pipe)
+{
+	if (pipe->cnt)
+		elogd_pipeline_merge_queues(pipe);
+
+	elogd_pipeline_flush_outq(pipe);
+	while (true) {
+		unsigned int cnt;
+		int          ret;
+
+		cnt = elogd_queue_busy_count(&pipe->outq);
+		if (!cnt)
+			break;
+
+		ret = elogd_store_write(&pipe->store, &pipe->outq, cnt);
+		if (ret)
+			return ret;
 	}
 
-	if (!elogd_queue_empty(&pipe->outq))
-		elogd_pipeline_on_alive(pipe, &pipe->outq);
+	return 0;
 }
 
 static __elogd_nonull(1, 2)
@@ -197,8 +285,6 @@ elogd_pipeline_open(struct elogd_pipeline * __restrict pipe,
 		return err;
 
 	elogd_queue_init(&pipe->outq, 2 * nr);
-
-	pipe->starting = true;
 
 	/*
 	 * Make sure that active queues handling is properly initialized since
@@ -231,11 +317,7 @@ elogd_pipeline_open(struct elogd_pipeline * __restrict pipe,
 	 */
 	if (pipe->cnt) {
 		elogd_pipeline_merge_queues(pipe);
-
-		pipe->cnt = 0;
-
-		if (!elogd_queue_empty(&pipe->outq))
-			elogd_pipeline_on_alive(pipe, &pipe->outq);
+		elogd_pipeline_reset_alive(pipe);
 	}
 
 	elogd_debug("pipeline initialized.\n");
@@ -994,7 +1076,6 @@ elogd_start(struct elogd_pipeline * __restrict pipe,
 			break;
 
 		case -ESHUTDOWN:
-			elogd_pipeline_process_starting(pipe);
 			return -ESHUTDOWN;
 
 		case -EINTR:
@@ -1030,7 +1111,6 @@ elogd_run(struct elogd_pipeline * __restrict pipe,
 			break;
 
 		case -ESHUTDOWN:
-			elogd_pipeline_process_running(pipe);
 			return;
 
 		case -EINTR:
@@ -1045,6 +1125,26 @@ elogd_run(struct elogd_pipeline * __restrict pipe,
 	}
 
 	unreachable();
+}
+
+static __elogd_nonull(1) __elogd_nothrow
+int
+elogd_stop(struct elogd_pipeline * __restrict pipe)
+{
+	int ret;
+
+	elogd_debug("stopping...");
+
+	ret = elogd_pipeline_stop(pipe);
+
+	if (ret)
+		elogd_err("stopping failed: %s (%d).\n",
+		          strerror(-ret),
+		          -ret);
+	else
+		elogd_info("stopped.");
+
+	return ret;
 }
 
 int
@@ -1067,7 +1167,7 @@ main(int argc, char * const argv[])
 	elogd_uid = getuid();
 	elogd_gid = getgid();
 
-	if (elogd_setup_loop(&poll, 4))
+	if (elogd_setup_loop(&poll, ELOGD_PIPELINE_POLL_NR + 1))
 		goto unlock;
 	if (elogd_sigchan_open(&sigs, &poll))
 		goto close_poll;
@@ -1076,11 +1176,12 @@ main(int argc, char * const argv[])
 
 	ret = EXIT_SUCCESS;
 	if (elogd_start(&pipe, &poll))
-		goto close_pipe;
+		goto stop;
 
 	elogd_run(&pipe, &poll);
 
-close_pipe:
+stop:
+	elogd_stop(&pipe);
 	elogd_pipeline_close(&pipe, &poll);
 close_sigs:
 	elogd_sigchan_close(&sigs, &poll);
