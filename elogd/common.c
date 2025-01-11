@@ -118,11 +118,12 @@ elogd_parse_prio(const char * __restrict string,
 	size_t        len;
 
 	val = strtoul(string, &end, 10);
-	len = end - string;
+	elogd_assert(end >= string);
+	len = (size_t)(end - string);
 	if (!len || (len > 3) || (*end != separator))
 		return NULL;
 
-	if (val & ~(LOG_FACMASK | LOG_PRIMASK))
+	if (val & ~((unsigned long)(LOG_FACMASK | LOG_PRIMASK)))
 		return NULL;
 
 	*facility = val & LOG_FACMASK;
@@ -150,7 +151,9 @@ elogd_probe_string_delim(const char * __restrict string, int delim, size_t len)
 		chr++;
 	} while (chr < &string[len]);
 
+STROLL_IGNORE_WARN("-Wcast-qual")
 	return (chr - string) ? (char *)chr : NULL;
+STROLL_RESTORE_WARN
 }
 
 /******************************************************************************
@@ -194,7 +197,9 @@ elogd_line_fill_rfc3164(struct elogd_line * __restrict line)
 
 			if (line->pid > 0) {
 				head[len++] = '[';
-				len += sprintf(&head[len], "%d", line->pid);
+				len += (size_t)sprintf(&head[len],
+				                       "%d",
+				                       line->pid);
 				head[len++] = ']';
 			}
 

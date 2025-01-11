@@ -30,10 +30,12 @@ elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
 		return -EAGAIN;
 
 	elogd_assert(ret >= 0);
-	if ((size_t)ret < ELOG_MQUEUE_MIN_LEN)
+	if ((size_t)ret < ELOG_MQUEUE_MIN_LEN) {
+		elogd_warn("message queue read failed: message too small.\n");
 		return -EINVAL;
+	}
 
-	line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = ret;
+	line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = (size_t)ret;
 	line->data[ret] = '\0';
 
 	return 0;
@@ -53,8 +55,11 @@ elogd_mqueue_parse(struct elogd_line * __restrict      line,
 	ssize_t                   blen;
 
 	blen = elog_parse_mqueue_msg(head, vec->iov_len);
-	if (blen < 0)
-		return blen;
+	if (blen < 0) {
+		elogd_warn("message queue parsing failed: "
+		           "unexpected message.\n");
+		return (int)blen;
+	}
 
 	/*
 	 * Messages are assigned a timestamp within the boot time space: convert
@@ -73,7 +78,7 @@ elogd_mqueue_parse(struct elogd_line * __restrict      line,
 	head->data[head->body + blen] = '\n';
 
 	vec->iov_base = &head->data[head->body];
-	vec->iov_len = blen + 1;
+	vec->iov_len = (size_t)blen + 1;
 
 	return 0;
 }
@@ -164,7 +169,6 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
 				 * Parsing error: log a message and proceed to
 				 * next line.
 				 */
-#warning log an info message ??
 				break;
 
 			case -EAGAIN:

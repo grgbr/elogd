@@ -22,6 +22,7 @@ elogd_svc_read(const struct elogd_svc * __restrict svc,
 		.iov_len  = sizeof(line->data) - 1
 	};
 	union unsk_creds   anc;
+STROLL_IGNORE_WARN("-Wcast-qual")
 	struct msghdr      msg = {
 		.msg_name       = NULL,
 		.msg_namelen    = 0,
@@ -31,6 +32,7 @@ elogd_svc_read(const struct elogd_svc * __restrict svc,
 		.msg_controllen = sizeof(anc.buff),
 		0,
 	};
+STROLL_RESTORE_WARN
 	ssize_t            ret;
 
 	ret = unsk_recv_dgram_msg(svc->unsk.fd, &msg, 0);
@@ -45,7 +47,7 @@ elogd_svc_read(const struct elogd_svc * __restrict svc,
 			elogd_assert(0);
 		}
 
-		return ret;
+		return (int)ret;
 	}
 
 	elogd_assert(!(msg.msg_flags & MSG_EOR));
@@ -58,8 +60,7 @@ elogd_svc_read(const struct elogd_svc * __restrict svc,
 	 * * also warn if credentials control message has been truncated
 	 *   (msg.msg_flags & MSG_CTRUNC) ?
 	 */
-
-	line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = ret;
+	line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = (size_t)ret;
 	line->data[ret] = '\0';
 
 	if (!(msg.msg_flags & MSG_CTRUNC)) {
@@ -69,8 +70,13 @@ elogd_svc_read(const struct elogd_svc * __restrict svc,
 		    (cmsg->cmsg_level == SOL_SOCKET) &&
 		    (cmsg->cmsg_type == SCM_CREDENTIALS) &&
 		    (cmsg->cmsg_len == CMSG_LEN(sizeof(struct ucred))))
-			line->pid = ((struct ucred *)CMSG_DATA(cmsg))->pid;
+			line->pid = ((const struct ucred *)
+			             CMSG_DATA(cmsg))->pid;
 	}
+
+	if (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))
+		elogd_warn("syslog service read failed: "
+		           "unxpected truncated message.\n");
 
 	return 0;
 }
@@ -103,13 +109,17 @@ elogd_svc_probe_body_start(const char * __restrict string, size_t len)
 
 	while (true) {
 		chr = (const char *)
-		      elogd_probe_string_delim(chr, ':', &string[len] - chr);
+		      elogd_probe_string_delim(chr,
+		                               ':',
+		                               (size_t)(&string[len] - chr));
 		elogd_assert(chr < &string[len]);
 		if (!chr || ((&chr[2]) >= &string[len]))
 			break;
 
 		if (chr[1] == ' ')
+STROLL_IGNORE_WARN("-Wcast-qual")
 			return (char *)chr;
+STROLL_RESTORE_WARN
 
 		chr++;
 	}
@@ -150,7 +160,7 @@ elogd_svc_parse_body(struct elogd_line * __restrict line,
 	start = &mark[2];
 	elogd_assert(start < &string[len]);
 
-	mlen = elog_check_line(start, len - (start - string));
+	mlen = elog_check_line(start, len - (size_t)(start - string));
 	if (mlen <= 0)
 		return NULL;
 
@@ -158,7 +168,7 @@ elogd_svc_parse_body(struct elogd_line * __restrict line,
 	start[mlen++] = '\n';
 
 	msg->iov_base = (void *)start;
-	msg->iov_len = mlen;
+	msg->iov_len = (size_t)mlen;
 
 	/*
 	 * Return pointer to first marker character to indicate the caller where
@@ -183,7 +193,7 @@ elogd_svc_parse_tag(struct elogd_line * __restrict line,
 
 	ptr = memrchr(string, ' ', len);
 	if (ptr) {
-		len = &string[len] - ++ptr;
+		len = (size_t)(&string[len] - ++ptr);
 		if (!len)
 			return -EINVAL;
 
@@ -194,7 +204,7 @@ elogd_svc_parse_tag(struct elogd_line * __restrict line,
 
 	ptr = memchr(line->tag, '[', len);
 	if (ptr)
-		line->tag_len = ptr - line->tag;
+		line->tag_len = (size_t)(ptr - line->tag);
 	else
 		line->tag_len = len;
 
@@ -217,21 +227,28 @@ elogd_svc_parse(struct elogd_line * __restrict line)
 	const char *         mark;
 
 	/* Parse priority tag. */
+STROLL_IGNORE_WARN("-Wcast-qual")
 	data = (char *)elogd_svc_parse_prio(line, data);
+STROLL_RESTORE_WARN
 	if (!data)
-		return -EINVAL;
+		goto err;
 
-	mark = elogd_svc_parse_body(line, data, end - data);
+	mark = elogd_svc_parse_body(line, data, (size_t)(end - data));
 	if (!mark)
-		return -EINVAL;
+		goto err;
 
-	if (elogd_svc_parse_tag(line, data, mark - data))
-		return -EINVAL;
+	if (elogd_svc_parse_tag(line, data, (size_t)(mark - data)))
+		goto err;
 
 	/* Assign message a timestamp within the realtime clock space. */
 	utime_realtime_now(&line->tstamp);
 
 	return 0;
+
+err:
+	elogd_warn("syslog service parsing failed: unexpected message.\n");
+
+	return -EINVAL;
 }
 
 static __elogd_nonull(1) __elogd_nothrow
@@ -301,7 +318,6 @@ elogd_svc_dispatch(struct upoll_worker * work,
 
 		/* Parsing errors. */
 		case -EINVAL:
-#warning log an info message ??
 			/* Process next line. */
 			break;
 

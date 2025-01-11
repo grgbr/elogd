@@ -37,7 +37,8 @@ elogd_kmsg_parse_seqno(const char * __restrict string,
 	size_t        len;
 
 	val = strtoul(string, &end, 10);
-	len = end - string;
+	elogd_assert(end >= string);
+	len = (size_t)(end - string);
 	if (!len || (len > 20) || (*end != ','))
 		return NULL;
 
@@ -61,7 +62,8 @@ elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
 	struct timespec * tstamp = &line->tstamp;
 
 	val = strtoul(string, &end, 10);
-	len = end - string;
+	elogd_assert(end >= string);
+	len = (size_t)(end - string);
 	if (!len || (len > 20) || (*end != ','))
 		return NULL;
 
@@ -87,7 +89,8 @@ elogd_kmsg_parse_seqno(const char * __restrict string,
 	size_t             len;
 
 	val = strtoull(string, &end, 10);
-	len = end - string;
+	elogd_assert(end >= string);
+	len = (size_t)(end - string);
 	if (!len || (len > 20) || (*end != ','))
 		return NULL;
 
@@ -111,7 +114,8 @@ elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
 	struct timespec *  tstamp = &line->tstamp;
 
 	val = strtoull(string, &end, 10);
-	len = end - string;
+	elogd_assert(end >= string);
+	len = (size_t)(end - string);
 	if (!len || (len > 20) || (*end != ','))
 		return NULL;
 
@@ -182,12 +186,12 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 		goto err;
 
 	/* Skip remaining fields up to next semi-colon. */
-	data = elogd_skip_field(data, ';', end - data);
+	data = elogd_skip_field(data, ';', (size_t)(end - data));
 	if (!data)
 		goto err;
 
 	/* Parse and skip empty message body. */
-	end = elogd_skip_field(data, '\n', end - data);
+	end = elogd_skip_field(data, '\n', (size_t)(end - data));
 	if (!end)
 		return -EINVAL;
 
@@ -207,8 +211,10 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	 * Save start of message body, include first terminating newline and
 	 * skip the rest of message.
 	 */
+STROLL_IGNORE_WARN("-Wcast-qual")
 	msg->iov_base = (void *)data;
-	msg->iov_len = end - data;
+STROLL_RESTORE_WARN
+	msg->iov_len = (size_t)(end - data);
 
 	return 0;
 
@@ -247,7 +253,7 @@ elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
 	} while (ret == -EPIPE);
 
 	if (ret > 0) {
-		line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = ret;
+		line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = (size_t)ret;
 		line->data[ret] = '\0';
 		return 0;
 	}
@@ -258,7 +264,7 @@ elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
 	           strerror((int)-ret),
 	           (int)-ret);
 
-	return ret;
+	return (int)ret;
 }
 
 static __elogd_nonull(1, 2) __elogd_nothrow
@@ -361,7 +367,7 @@ publish:
 	return 0;
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1) __elogd_nothrow
 int
 elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 {
@@ -544,7 +550,7 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict     kmsg,
 		goto close_stat;
 	}
 
-	err = ufd_lseek(fd, 0, SEEK_DATA);
+	err = (int)ufd_lseek(fd, 0, SEEK_DATA);
 	elogd_assert(!err);
 
 	elogd_queue_init(&kmsg->queue, elogd_conf.kmsg_fetch);

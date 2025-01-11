@@ -100,14 +100,14 @@ extern struct elogd_config elogd_conf;
 	elogd_assert((size_t)upath_validate_file_name(elogd_conf.file_base) == \
 	             elogd_conf.file_len); \
 	elogd_assert(!elogd_conf.file_group || elogd_conf.file_group[0]); \
-	elogd_assert(!(elogd_conf.file_mode & ~DEFFILEMODE)); \
+	elogd_assert(!(elogd_conf.file_mode & ~((mode_t)DEFFILEMODE))); \
 	elogd_assert(elogd_conf.max_size >= ELOGD_FILE_SIZE_MIN); \
 	elogd_assert(elogd_conf.max_size <= ELOGD_FILE_SIZE_MAX); \
 	elogd_assert(elogd_conf.max_rot); \
 	elogd_assert(elogd_conf.max_rot <= ELOGD_FILE_ROT_MAX); \
 	elogd_assert(upath_validate_path_name(elogd_conf.sock_path) > 0); \
 	elogd_assert(!elogd_conf.svc_group || elogd_conf.svc_group[0]); \
-	elogd_assert(!(elogd_conf.svc_mode & ~DEFFILEMODE)); \
+	elogd_assert(!(elogd_conf.svc_mode & ~((mode_t)DEFFILEMODE))); \
 	elogd_assert(elogd_conf.svc_fetch > 0); \
 	elogd_assert(elogd_conf.delay > 0)
 
@@ -382,7 +382,9 @@ elogd_queue_head(const struct elogd_queue * __restrict queue)
 	elogd_assert(queue->cnt <= queue->nr);
 	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
 
+STROLL_IGNORE_WARN("-Wcast-qual")
 	return (struct stroll_dlist_node *)&queue->head;
+STROLL_RESTORE_WARN
 }
 
 static inline __elogd_nonull(1) __elogd_pure __elogd_nothrow

@@ -63,6 +63,10 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 		msg = "invalid file type";
 		goto close;
 	}
+	if ((size_t)st.st_size > elogd_conf.max_size) {
+		msg = "file size too large";
+		goto close;
+	}
 
 	if (elogd_conf.file_group) {
 		err = upwd_get_gid_byname(elogd_conf.file_group, &gid);
@@ -84,7 +88,7 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 		goto close;
 	}
 
-	store->size = st.st_size;
+	store->size = (size_t)st.st_size;
 
 	return 0;
 
@@ -191,14 +195,10 @@ static __elogd_nonull(1, 2) __elogd_nothrow
 void
 elogd_store_complete_partial_writev(struct elogd_queue * __restrict queue,
                                     const struct iovec * __restrict iovecs,
-                                    unsigned int                    count,
                                     size_t                          written)
 {
 	elogd_assert(queue);
 	elogd_assert(iovecs);
-	elogd_assert(count);
-	elogd_assert(count <= elogd_queue_busy_count(queue));
-	elogd_assert((count << 1) <= IOV_MAX);
 	elogd_assert(written < SSIZE_MAX);
 
 	struct stroll_dlist_node * last;
@@ -220,7 +220,6 @@ elogd_store_complete_partial_writev(struct elogd_queue * __restrict queue,
 	}
 
 	elogd_assert(stroll_dlist_next(last) != elogd_queue_head(queue));
-	elogd_assert(cnt < count);
 	elogd_assert(size < written);
 
 	/*
@@ -292,7 +291,7 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 	if (ret >= 0) {
 		elogd_assert((size_t)ret <= bytes);
 
-		store->size += ret;
+		store->size += (size_t)ret;
 
 		if ((size_t)ret == bytes) {
 			/* All lines were fully written out. */
@@ -302,12 +301,11 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 			/* Lines were partially written. */
 			elogd_store_complete_partial_writev(queue,
 			                                    iovecs,
-			                                    cnt,
-			                                    ret);
+			                                    (size_t)ret);
 		return 0;
 	}
 
-	return ret;
+	return (int)ret;
 }
 
 static __elogd_nonull(1) __elogd_pure __elogd_nothrow

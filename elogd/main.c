@@ -145,7 +145,7 @@ elogd_pipeline_fulfill_outq(struct elogd_pipeline * __restrict pipe)
 		struct timespec now;
 
 		utime_realtime_now(&now);
-		if (utime_tspec_sub_sec(&now, elogd_conf.delay) >= 0) {
+		if (utime_tspec_sub_sec(&now, (int)elogd_conf.delay) >= 0) {
 			struct stroll_dlist_node * node;
 
 			elogd_queue_foreach_node(&pipe->outq, node) {
@@ -185,7 +185,7 @@ elogd_pipeline_process_starting(struct elogd_pipeline * __restrict pipe)
 	    elogd_queue_full(&pipe->outq)) {
 		elogd_assert(!elogd_queue_empty(&pipe->outq));
 
-		int cnt;
+		unsigned int cnt;
 
 		cnt = elogd_pipeline_fulfill_outq(pipe);
 		if (cnt)
@@ -212,7 +212,7 @@ elogd_pipeline_process_timeout(const struct elogd_pipeline * __restrict pipe)
 		struct timespec now;
 
 		tstamp = elogd_queue_peek(&pipe->outq)->tstamp;
-		utime_tspec_add_sec_clamp(&tstamp, elogd_conf.delay);
+		utime_tspec_add_sec_clamp(&tstamp, (int)elogd_conf.delay);
 		utime_realtime_now(&now);
 		if (utime_tspec_sub(&tstamp, &now) <= 0)
 			/* There is at least 1 message to store now. */
@@ -469,8 +469,10 @@ void
 elogd_free_logfile_paths(void)
 {
 	if (elogd_free_paths) {
+STROLL_IGNORE_WARN("-Wcast-qual")
 		free((char *)elogd_conf.dir_path);
 		free((char *)elogd_conf.file_base);
+STROLL_RESTORE_WARN
 	}
 }
 
@@ -517,7 +519,9 @@ elogd_parse_log_path(const char * __restrict path)
 	 * trailing slash '/'.
 	 */
 	base = basename(path);
-	ret = strlen(base);
+	ret = (ssize_t)strlen(base);
+	elogd_assert(ret >= 0);
+	elogd_assert(ret <= NAME_MAX);
 	if (!ret) {
 		elogd_early_err("invalid output logging pathname: "
 		                "empty basename.\n");

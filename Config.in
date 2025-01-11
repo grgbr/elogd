@@ -48,7 +48,7 @@ config ELOGD_FETCH_MAX
 config ELOGD_KMSG_FETCH
 	int "Number of kernel message fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
-	default 16
+	default 32
 	help
 	  Number of kernel messages that elogd daemon will fetch in a single
 	  polling iteration.
@@ -63,7 +63,7 @@ config ELOGD_MQUEUE_NAME
 config ELOGD_MQUEUE_FETCH
 	int "Number of message queue fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
-	default 16
+	default 32
 	help
 	  Number of message queue messages that elogd daemon will fetch in a
 	  single polling iteration.
@@ -91,7 +91,7 @@ config ELOGD_SVC_GROUP
 config ELOGD_SVC_FETCH
 	int "Number of syslog message fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
-	default 16
+	default 32
 	help
 	  Number of syslog socket messages that elogd daemon will fetch in a
 	  single polling iteration.
