@@ -13,7 +13,7 @@ config ELOGD_DEBUG
 config ELOGD_STDLOG_SEVERITY
 	int "STDIO logger severity"
 	range 0 7
-	default 4
+	default 3
 	help
 	  Internal elogd daemon messages with severity greater than this won't
 	  be sent to standard I/O logger.
@@ -95,6 +95,23 @@ config ELOGD_SVC_FETCH
 	help
 	  Number of syslog socket messages that elogd daemon will fetch in a
 	  single polling iteration.
+
+config ELOGD_INTERN_SEVERITY
+	int "Internal logger severity"
+	range 0 7
+	default 4
+	help
+	  Internal elogd daemon messages with severity greater than this won't
+	  be sent to internal logging queue.
+	  See syslog(3) levels for more informations about available severities.
+
+config ELOGD_INTERN_FETCH
+	int "Number of internal eLogd message fetches"
+	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
+	default 32
+	help
+	  Number of internal messages that elogd daemon will fetch in a single
+	  polling iteration.
 
 config ELOGD_DIR_PATH
 	string "Logging output directory"

@@ -6,6 +6,7 @@
  ******************************************************************************/
 
 #include "common.h"
+#include "log.h"
 #include <utils/time.h>
 #include <ctype.h>
 
@@ -16,33 +17,32 @@
 	elogd_assert((_tspec)->tv_nsec >= 0); \
 	elogd_assert((_tspec)->tv_nsec < 1000000000L)
 
-struct elog_stdio   elogd_stdlog;
-
 struct elogd_config elogd_conf = {
-	.user         = compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
-	                               NULL,
-	                               CONFIG_ELOGD_USER),
-	.lock_path    = CONFIG_ELOGD_LOCK_PATH,
-	.stat_path    = CONFIG_ELOGD_STAT_PATH,
-	.kmsg_fetch   = CONFIG_ELOGD_KMSG_FETCH,
-	.mqueue_name  = CONFIG_ELOGD_MQUEUE_NAME,
-	.mqueue_fetch = CONFIG_ELOGD_MQUEUE_FETCH,
-	.dir_path     = CONFIG_ELOGD_DIR_PATH,
-	.file_base    = CONFIG_ELOGD_FILE_BASE,
-	.file_len     = sizeof(CONFIG_ELOGD_FILE_BASE) - 1,
-	.file_group   = compile_choose(sizeof(CONFIG_ELOGD_FILE_GROUP) == 1,
-	                               NULL,
-	                               CONFIG_ELOGD_FILE_GROUP),
-	.file_mode    = ELOGD_FILE_MODE,
-	.max_size     = CONFIG_ELOGD_SIZE,
-	.max_rot      = CONFIG_ELOGD_ROT_NR,
-	.sock_path    = CONFIG_ELOGD_SOCK_PATH,
-	.svc_group    = compile_choose(sizeof(CONFIG_ELOGD_SVC_GROUP) == 1,
-	                               NULL,
-	                               CONFIG_ELOGD_SVC_GROUP),
-	.svc_mode     = ELOGD_SVC_MODE,
-	.svc_fetch    = CONFIG_ELOGD_SVC_FETCH,
-	.delay        = ELOGD_DELAY
+	.user            = compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
+	                                  NULL,
+	                                  CONFIG_ELOGD_USER),
+	.lock_path       = CONFIG_ELOGD_LOCK_PATH,
+	.stat_path       = CONFIG_ELOGD_STAT_PATH,
+	.kmsg_fetch      = CONFIG_ELOGD_KMSG_FETCH,
+	.mqueue_name     = CONFIG_ELOGD_MQUEUE_NAME,
+	.mqueue_fetch    = CONFIG_ELOGD_MQUEUE_FETCH,
+	.dir_path        = CONFIG_ELOGD_DIR_PATH,
+	.file_base       = CONFIG_ELOGD_FILE_BASE,
+	.file_len        = sizeof(CONFIG_ELOGD_FILE_BASE) - 1,
+	.file_group      = compile_choose(sizeof(CONFIG_ELOGD_FILE_GROUP) == 1,
+	                                  NULL,
+	                                  CONFIG_ELOGD_FILE_GROUP),
+	.file_mode       = ELOGD_FILE_MODE,
+	.max_size        = CONFIG_ELOGD_SIZE,
+	.max_rot         = CONFIG_ELOGD_ROT_NR,
+	.sock_path       = CONFIG_ELOGD_SOCK_PATH,
+	.svc_group       = compile_choose(sizeof(CONFIG_ELOGD_SVC_GROUP) == 1,
+	                                  NULL,
+	                                  CONFIG_ELOGD_SVC_GROUP),
+	.svc_mode        = ELOGD_SVC_MODE,
+	.svc_fetch       = CONFIG_ELOGD_SVC_FETCH,
+	.intern_fetch    = CONFIG_ELOGD_INTERN_FETCH,
+	.delay           = ELOGD_DELAY
 };
 
 /******************************************************************************
@@ -310,7 +310,7 @@ elogd_alloc_init(unsigned int nr)
 	unsigned int        l;
 	struct elogd_line * lines;
 
-	elogd_debug("initializing line allocator...\n");
+	elogd_early_debug("initializing line allocator...\n");
 
 	lines = malloc(nr * sizeof(lines[0]));
 	if (!lines)
@@ -322,10 +322,10 @@ elogd_alloc_init(unsigned int nr)
 	elogd_the_alloc.lines = lines;
 	elogd_the_alloc.nr = nr;
 
-	elogd_info("line allocator initialized "
-	           "with %u lines of %u bytes each.\n",
-	           nr,
-	           ELOGD_LINE_MAX_LEN);
+	elogd_early_info("line allocator initialized "
+	                 "with %u lines of %u bytes each.\n",
+	                 nr,
+	                 ELOGD_LINE_MAX_LEN);
 
 	return 0;
 }
@@ -336,7 +336,7 @@ elogd_alloc_fini(void)
 	elogd_assert(elogd_the_alloc.lines);
 	elogd_assert(elogd_the_alloc.nr);
 
-	elogd_debug("terminating line allocator...\n");
+	elogd_early_debug("terminating line allocator...\n");
 
 	free(elogd_the_alloc.lines);
 }
@@ -510,4 +510,17 @@ elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
 	queue->cnt = 0;
 	queue->nr = nr;
 	stroll_dlist_init(&queue->head);
+}
+
+void
+elogd_queue_fini(const struct elogd_queue * __restrict queue)
+{
+	elogd_assert(queue);
+	elogd_assert(queue->nr);
+	elogd_assert(queue->cnt <= queue->nr);
+	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+
+	if (queue->cnt)
+		elogd_line_destroy_bulk(stroll_dlist_next(&queue->head),
+		                        stroll_dlist_prev(&queue->head));
 }

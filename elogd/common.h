@@ -39,6 +39,41 @@
 
 #endif /* defined(CONFIG_ELOGD_ASSERT) */
 
+#warning augment macros below with check for verbosity level !!
+
+#define elogd_early_err(_format, ...) \
+	fprintf(stderr, \
+	        "%s: {   err} " _format, \
+	        program_invocation_short_name, \
+	        ## __VA_ARGS__)
+
+#define elogd_early_warn(_format, ...) \
+	fprintf(stderr, \
+	        "%s: {  warn} " _format, \
+	        program_invocation_short_name, \
+	        ## __VA_ARGS__)
+
+#define elogd_early_info(_format, ...) \
+	fprintf(stderr, \
+	        "%s: {  info} " _format, \
+	        program_invocation_short_name, \
+	        ## __VA_ARGS__)
+
+#if defined(CONFIG_ELOGD_DEBUG)
+
+#define elogd_early_debug(_format, ...) \
+	fprintf(stderr, \
+	        "%s: { debug} " _format, \
+	        program_invocation_short_name, \
+	        ## __VA_ARGS__)
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+#define elogd_early_debug(_format, ...)
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
+extern pid_t elogd_pid;
 extern uid_t elogd_uid;
 extern gid_t elogd_gid;
 
@@ -82,6 +117,8 @@ struct elogd_config {
 	const char *           svc_group;
 	mode_t                 svc_mode;
 	unsigned int           svc_fetch;
+	struct elog_conf       intlog;
+	unsigned int           intern_fetch;
 	unsigned int           delay;
 	struct elog_stdio_conf stdlog;
 };
@@ -109,7 +146,12 @@ extern struct elogd_config elogd_conf;
 	elogd_assert(!elogd_conf.svc_group || elogd_conf.svc_group[0]); \
 	elogd_assert(!(elogd_conf.svc_mode & ~((mode_t)DEFFILEMODE))); \
 	elogd_assert(elogd_conf.svc_fetch > 0); \
-	elogd_assert(elogd_conf.delay > 0)
+	elogd_assert(!(elogd_conf.intlog.severity & ~LOG_PRIMASK)); \
+	elogd_assert(elogd_conf.intern_fetch > 0); \
+	elogd_assert(elogd_conf.delay > 0); \
+	elogd_assert(!(elogd_conf.stdlog.super.severity & ~LOG_PRIMASK)); \
+	elogd_assert(elogd_conf.stdlog.format == \
+	             (ELOG_TAG_FMT | ELOG_SEVERITY_FMT))
 
 /******************************************************************************
  * Various helper definitions
@@ -133,28 +175,6 @@ elogd_parse_prio(const char * __restrict string,
 extern char *
 elogd_probe_string_delim(const char * __restrict string, int delim, size_t len)
 	__elogd_nonull(1) __elogd_pure __elogd_nothrow __leaf __warn_result;
-
-extern struct elog_stdio elogd_stdlog;
-
-#define elogd_err(_format, ...) \
-	elog_err(&elogd_stdlog, _format, ## __VA_ARGS__)
-
-#define elogd_warn(_format, ...) \
-	elog_warn(&elogd_stdlog, _format, ## __VA_ARGS__)
-
-#define elogd_info(_format, ...) \
-	elog_info(&elogd_stdlog, _format, ## __VA_ARGS__)
-
-#if defined(CONFIG_ELOGD_DEBUG)
-
-#define elogd_debug(_format, ...) \
-	elog_debug(&elogd_stdlog, _format, ## __VA_ARGS__)
-
-#else  /* !defined(CONFIG_ELOGD_DEBUG) */
-
-#define elogd_debug(_format, ...)
-
-#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 /******************************************************************************
  * Logging output line allocator
@@ -232,7 +252,7 @@ struct elogd_line {
 	elogd_assert((_iovec)[ELOGD_LINE_MSG_IOVEC].iov_len); \
 	elogd_assert((_iovec)[ELOGD_LINE_MSG_IOVEC].iov_len < \
 	             sizeof((_line)->data)); \
-	elogd_assert((char *)(_iovec)[ELOGD_LINE_MSG_IOVEC].iov_base > \
+	elogd_assert((char *)(_iovec)[ELOGD_LINE_MSG_IOVEC].iov_base >= \
 	             (_line)->data); \
 	elogd_assert((char *)(_iovec)[ELOGD_LINE_MSG_IOVEC].iov_base < \
 	             &(_line)->data[sizeof((_line)->data)])
@@ -242,7 +262,11 @@ struct elogd_line {
 	elogd_assert(!((_line)->facility & ~LOG_FACMASK)); \
 	elogd_line_assert_msg(_line, (_line)->vector)
 
-static inline __elogd_nonull(1) __elogd_pure __warn_result
+static inline __elogd_nonull(1)
+              __elogd_pure
+              __elogd_nothrow
+              __returns_nonull
+              __warn_result
 struct elogd_line *
 elogd_line_from_node(const struct stroll_dlist_node * __restrict node)
 {
@@ -370,7 +394,11 @@ elogd_queue_full(const struct elogd_queue * __restrict queue)
 	return queue->cnt == queue->nr;
 }
 
-static inline __elogd_nonull(1) __elogd_pure
+static inline __elogd_nonull(1)
+              __elogd_pure
+              __elogd_nothrow
+              __returns_nonull
+              __warn_result
 struct stroll_dlist_node *
 elogd_queue_head(const struct elogd_queue * __restrict queue)
 {
@@ -384,7 +412,11 @@ STROLL_IGNORE_WARN("-Wcast-qual")
 STROLL_RESTORE_WARN
 }
 
-static inline __elogd_nonull(1) __elogd_pure __elogd_nothrow
+static inline __elogd_nonull(1)
+              __elogd_pure
+              __elogd_nothrow
+              __returns_nonull
+              __warn_result
 struct elogd_line *
 elogd_queue_peek(const struct elogd_queue * __restrict queue)
 {
@@ -444,14 +476,8 @@ extern void
 elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
 	__elogd_nonull(1) __elogd_nothrow;
 
-static inline __elogd_nonull(1) __elogd_nothrow
-void
-elogd_queue_fini(const struct elogd_queue * __restrict queue __unused)
-{
-	elogd_assert(queue);
-	elogd_assert(queue->nr);
-	elogd_assert(queue->cnt <= queue->nr);
-	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
-}
+extern void
+elogd_queue_fini(const struct elogd_queue * __restrict queue);
+	__elogd_nonull(1) __elogd_nothrow;
 
 #endif /* _ELOGD_COMMON_H */

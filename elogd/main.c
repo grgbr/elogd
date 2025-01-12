@@ -5,6 +5,7 @@
  * Copyright (C) 2022-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
+#include "log.h"
 #include "pipe.h"
 #include "sigchan.h"
 
@@ -21,14 +22,9 @@
 #include <getopt.h>
 #include <sysexits.h>
 
+pid_t elogd_pid = -1;
 uid_t elogd_uid;
 gid_t elogd_gid;
-
-#define elogd_early_err(_format, ...) \
-	fprintf(stderr, \
-	        "%s: {   err} " _format, \
-	        program_invocation_short_name, \
-	        ## __VA_ARGS__)
 
 static
 int
@@ -322,22 +318,6 @@ elogd_parse_mode(const char * __restrict arg,
 
 static __elogd_nonull(1, 2)
 int
-elogd_parse_stdlog(const char * __restrict        arg,
-                   struct elog_parse * __restrict context)
-{
-	elogd_assert(arg);
-	elogd_assert(context);
-
-	if (elog_parse_stdio_severity(context, &elogd_conf.stdlog, arg)) {
-		elogd_early_err("%s.\n", context->error);
-		return EXIT_FAILURE;
-	}
-
-	return EXIT_SUCCESS;
-}
-
-static __elogd_nonull(1, 2)
-int
 elogd_parse_delay(const char * __restrict   arg,
                   unsigned int * __restrict delay)
 {
@@ -409,6 +389,8 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_DELAY) ")\n" \
 "    -v|--stdlog LEVEL     -- set standard output log level\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
+"    -i|--intlog LEVEL     -- set internal log level\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_INTLOG_SEVERITY) ")\n" \
 "    -h|--help             -- this help message\n"
 
 static void
@@ -432,14 +414,11 @@ static
 int
 elogd_parse_cmdln(int argc, char * const argv[])
 {
-	struct elog_parse                   ctx;
+	struct elog_parse                   stdlog_parse;
+	struct elog_parse                   intlog_parse;
 	int                                 ret = EXIT_FAILURE;
-	static const struct elog_stdio_conf dflt = {
-		.super.severity = CONFIG_ELOGD_STDLOG_SEVERITY,
-		.format         = ELOG_TAG_FMT | ELOG_SEVERITY_FMT
-	};
 
-	elog_init_stdio_parse(&ctx, &elogd_conf.stdlog, &dflt);
+	elogd_log_init_parse(&stdlog_parse, &intlog_parse);
 
 	while (true) {
 		int                        opt;
@@ -460,13 +439,14 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			{ "sock-mode",  required_argument, NULL, 'c' },
 			{ "sock-fetch", required_argument, NULL, 'f' },
 			{ "stdlog",     required_argument, NULL, 'v' },
+			{ "intlog",     required_argument, NULL, 'i' },
 			{ "help",       no_argument,       NULL, 'h' },
 			{ NULL,         0,                 NULL, 0 }
 		};
 
 		opt = getopt_long(argc,
 		                  argv,
-		                  ":u::l:s:k:n:q:o:e::m:z:r:p:b::c:f:d:v:h",
+		                  ":u::l:s:k:n:q:o:e::m:z:r:p:b::c:f:d:v:i:h",
 		                  opts,
 		                  NULL);
 		if (opt < 0)
@@ -574,7 +554,12 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		case 'v':
-			if (elogd_parse_stdlog(optarg, &ctx))
+			if (elogd_log_parse_std(&stdlog_parse, optarg))
+				goto out;
+			break;
+
+		case 'i':
+			if (elogd_log_parse_intern(&intlog_parse, optarg))
 				goto out;
 			break;
 
@@ -603,12 +588,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 		goto usage;
 	}
 
-	if (elog_realize_parse(&ctx, (struct elog_conf *)&elogd_conf.stdlog)) {
-		elogd_early_err("%s.\n", ctx.error);
-		goto out;
-	}
-
-	elog_fini_parse(&ctx);
+	elogd_log_fini_parse(&stdlog_parse, &intlog_parse);
 
 	return EXIT_SUCCESS;
 
@@ -616,16 +596,9 @@ usage:
 	show_usage();
 out:
 	elogd_free_logfile_paths();
-	elog_fini_parse(&ctx);
+	elogd_log_fini_parse(&stdlog_parse, &intlog_parse);
 
 	return ret;
-}
-
-static
-void
-elogd_enable_log(void)
-{
-	elog_init_stdio(&elogd_stdlog, &elogd_conf.stdlog);
 }
 
 static
@@ -635,7 +608,7 @@ elogd_secure(void)
 	int err;
 
 	umask(07077);
-	enbox_setup((struct elog *)&elogd_stdlog);
+	enbox_setup((struct elog *)&elogd_logger);
 
 	err = enbox_lock_caps();
 	if (err)
@@ -733,7 +706,7 @@ static __elogd_nonull(1, 2) __elogd_nothrow
 int
 elogd_start(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 {
-	elogd_debug("starting...");
+	elogd_debug("starting...\n");
 
 	while (true) {
 		switch (upoll_process(poll, 0)) {
@@ -764,7 +737,7 @@ static __elogd_nonull(1, 2) __elogd_nothrow
 void
 elogd_run(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 {
-	elogd_info("ready.");
+	elogd_info("ready.\n");
 
 	while (true) {
 		int tmout;
@@ -800,7 +773,7 @@ elogd_stop(struct elogd_pipe * __restrict pipe)
 {
 	int ret;
 
-	elogd_debug("stopping...");
+	elogd_debug("stopping...\n");
 
 	ret = elogd_pipe_stop(pipe);
 
@@ -809,7 +782,7 @@ elogd_stop(struct elogd_pipe * __restrict pipe)
 		          strerror(-ret),
 		          -ret);
 	else
-		elogd_info("stopped.");
+		elogd_info("stopped.\n");
 
 	return ret;
 }
@@ -821,16 +794,28 @@ main(int argc, char * const argv[])
 	struct upoll         poll;
 	struct elogd_sigchan sigs;
 	struct elogd_pipe    pipe;
+	unsigned int         nr;
+
+	elogd_pid = getpid();
 
 	ret = elogd_parse_cmdln(argc, argv);
 	if (ret)
 		return (ret == EX_USAGE) ? EXIT_SUCCESS : ret;
 	ret = EXIT_FAILURE;
 
-	elogd_enable_log();
+	nr = 2 * (elogd_conf.kmsg_fetch +
+	          elogd_conf.mqueue_fetch +
+	          elogd_conf.svc_fetch +
+	          elogd_conf.intern_fetch);
+	if (elogd_alloc_init(nr))
+		goto out;
+
+	if (elogd_log_enable())
+		goto fini_alloc;
 	elogd_secure();
 	if (elogd_lock())
-		goto out;
+		goto fini_log;
+
 	elogd_uid = getuid();
 	elogd_gid = getgid();
 
@@ -838,7 +823,7 @@ main(int argc, char * const argv[])
 		goto unlock;
 	if (elogd_sigchan_open(&sigs, &poll))
 		goto close_poll;
-	if (elogd_pipe_open(&pipe, &poll))
+	if (elogd_pipe_open(&pipe, nr, &poll))
 		goto close_sigs;
 
 	ret = EXIT_SUCCESS;
@@ -856,6 +841,10 @@ close_poll:
 	upoll_close(&poll);
 unlock:
 	elogd_unlock();
+fini_log:
+	elogd_log_fini();
+fini_alloc:
+	elogd_alloc_fini();
 out:
 	elogd_free_logfile_paths();
 

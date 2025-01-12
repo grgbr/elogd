@@ -7,6 +7,7 @@
 
 #include "mqueue.h"
 #include "pipe.h"
+#include "log.h"
 #include <utils/fd.h>
 #include <utils/time.h>
 
@@ -277,7 +278,7 @@ elogd_mqueue_close(const struct elogd_mqueue * __restrict mqueue,
 	elogd_assert(mqueue);
 	elogd_assert(mqueue->fd >= 0);
 
-	elogd_debug("closing message queue...\n");
+	elogd_early_debug("closing message queue...\n");
 
 	upoll_unregister(poll, mqueue->fd);
 	elogd_queue_fini(&mqueue->queue);

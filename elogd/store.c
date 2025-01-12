@@ -6,6 +6,7 @@
  ******************************************************************************/
 
 #include "store.h"
+#include "log.h"
 #include <utils/time.h>
 #include <utils/file.h>
 #include <utils/dir.h>
@@ -465,36 +466,38 @@ elogd_store_close(struct elogd_store * __restrict store)
 	if (store->fd >= 0) {
 		err = ufile_sync(store->fd);
 		if (err)
-			elogd_warn("'%s/%s': "
-			           "cannot sync logging file: %s (%d).\n",
-			           elogd_conf.dir_path,
-			           store->base,
-			           strerror(-err),
-			           -err);
+			elogd_early_warn("'%s/%s': "
+			                 "cannot sync logging file: %s (%d).\n",
+			                 elogd_conf.dir_path,
+			                 store->base,
+			                 strerror(-err),
+			                 -err);
 
 		err = ufile_close(store->fd);
 		if (err)
-			elogd_warn("'%s/%s': "
-			           "cannot close logging file: %s (%d).\n",
-			           elogd_conf.dir_path,
-			           store->base,
-			           strerror(-err),
-			           -err);
+			elogd_early_warn("'%s/%s': cannot close logging file: "
+			                 "%s (%d).\n",
+			                 elogd_conf.dir_path,
+			                 store->base,
+			                 strerror(-err),
+			                 -err);
 	}
 
 	free(store->base);
 
 	err = udir_sync(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot sync logging directory: %s (%d).\n",
-		           elogd_conf.dir_path,
-		           strerror(-err),
-		           -err);
+		elogd_early_warn("'%s': cannot sync logging directory: "
+		                 "%s (%d).\n",
+		                 elogd_conf.dir_path,
+		                 strerror(-err),
+		                 -err);
 
 	err = udir_close(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot close logging directory: %s (%d).\n",
-		           elogd_conf.dir_path,
-		           strerror(-err),
-		           -err);
+		elogd_early_warn("'%s': cannot close logging directory: "
+		                 "%s (%d).\n",
+		                 elogd_conf.dir_path,
+		                 strerror(-err),
+		                 -err);
 }

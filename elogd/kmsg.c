@@ -7,6 +7,7 @@
 
 #include "kmsg.h"
 #include "pipe.h"
+#include "log.h"
 #include <utils/time.h>
 #include <utils/file.h>
 #include <ctype.h>
@@ -582,7 +583,7 @@ elogd_kmsg_close(const struct elogd_kmsg * __restrict kmsg,
 	elogd_assert(kmsg->stat_fd >= 0);
 	elogd_assert(poll);
 
-	elogd_debug("closing kernel ring-buffer...\n");
+	elogd_early_debug("closing kernel ring-buffer...\n");
 
 	upoll_unregister(poll, kmsg->dev_fd);
 

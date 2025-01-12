@@ -7,6 +7,7 @@
 
 #include "svc.h"
 #include "pipe.h"
+#include "log.h"
 #include <utils/time.h>
 #include <utils/pwd.h>
 
@@ -431,7 +432,7 @@ elogd_svc_close(const struct elogd_svc * __restrict svc,
 {
 	elogd_assert(svc);
 
-	elogd_debug("closing syslog service...\n");
+	elogd_early_debug("closing syslog service...\n");
 
 	upoll_unregister(poll, svc->unsk.fd);
 	elogd_queue_fini(&svc->queue);
