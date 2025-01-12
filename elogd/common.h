@@ -123,10 +123,6 @@ extern struct elogd_config elogd_conf;
 #define ELOGD_TAG_MAX_LEN        (ELOGD_TAG_MAX_SIZE - 1)
 #define ELOGD_PID_MAX_LEN        (10U)
 
-extern void
-elogd_realtime_offset(struct timespec * __restrict offset)
-	__elogd_nonull(1) __elogd_nothrow;
-
 extern const char *
 elogd_parse_prio(const char * __restrict string,
                  int                     separator,
@@ -280,8 +276,9 @@ elogd_line_copy_iovec(
 }
 
 extern void
-elogd_line_fill_rfc3164(struct elogd_line * __restrict line)
-	 __elogd_nonull(1) __elogd_nothrow __leaf;
+elogd_line_fill_rfc3164(struct elogd_line * __restrict     line,
+                        const struct timespec * __restrict real_off)
+	 __elogd_nonull(1, 2) __elogd_nothrow __leaf;
 
 extern void
 elogd_line_fixup_partial(struct elogd_line * __restrict line, size_t written)

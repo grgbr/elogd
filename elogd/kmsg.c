@@ -163,9 +163,11 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	elogd_assert(line->vector[ELOGD_LINE_MSG_IOVEC].iov_len);
 
 	const char *    data = line->data;
+	struct timespec now;
 	struct iovec *  msg = &line->vector[ELOGD_LINE_MSG_IOVEC];
 	const char *    end = &line->data[msg->iov_len];
-	struct timespec now;
+
+	utime_boot_now(&now);
 
 	if (isspace(*data))
 		/* Skip empty and continuation lines. */
@@ -200,8 +202,8 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	 * Kernel logging messages are assigned timestamp within the boot time
 	 * space.
 	 */
-	utime_boot_now(&now);
 	if (utime_tspec_after(&line->tstamp, &now))
+		/* Fixup messages timestamped in the future. */
 		line->tstamp = now;
 
 	line->tag_len = sizeof("kernel") - 1;
@@ -268,10 +270,9 @@ elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
 	return (int)ret;
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1) __elogd_nothrow
 int
-elogd_kmsg_process(struct elogd_kmsg * __restrict     kmsg,
-                   const struct timespec * __restrict real_off)
+elogd_kmsg_process(struct elogd_kmsg * __restrict kmsg)
 {
 	elogd_assert(kmsg);
 	elogd_assert(kmsg->dev_fd >= 0);
@@ -296,12 +297,6 @@ elogd_kmsg_process(struct elogd_kmsg * __restrict     kmsg,
 
 	*kmsg->seqno = seqno;
 
-	/*
-	 * Kernel messages are already ordered within the boot time space.
-	 * Convert timestamp into the realtime clock space and queue the
-	 * message.
-	 */
-	utime_tspec_add_clamp(&line->tstamp, real_off);
 	elogd_nqueue(&kmsg->queue, line);
 
 	return 0;
@@ -339,14 +334,10 @@ elogd_kmsg_dispatch(struct upoll_worker * work,
 
 	cnt = elogd_queue_free_count(&kmsg->queue);
 	if (cnt) {
-		struct timespec toff;
-
-		elogd_realtime_offset(&toff);
-
 		do {
 			int ret;
 
-			ret = elogd_kmsg_process(kmsg, &toff);
+			ret = elogd_kmsg_process(kmsg);
 			switch (ret) {
 			case 0:
 				break;
@@ -379,7 +370,6 @@ elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 
 	struct elogd_line * line;
 	uint64_t            seqno;
-	struct timespec     toff;
 	int                 ret;
 
 	line = elogd_line_create();
@@ -407,13 +397,6 @@ elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 
 	*kmsg->seqno = seqno;
 
-	/*
-	 * Kernel messages are already ordered within the boot time space.
-	 * Convert timestamp into the realtime clock space and queue the
-	 * message.
-	 */
-	elogd_realtime_offset(&toff);
-	utime_tspec_add_clamp(&line->tstamp, &toff);
 	elogd_nqueue(&kmsg->queue, line);
 
 	return 0;

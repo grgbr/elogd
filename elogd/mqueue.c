@@ -42,18 +42,20 @@ elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
 	return 0;
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1) __elogd_nothrow
 int
-elogd_mqueue_parse(struct elogd_line * __restrict      line,
-                   const struct timespec *  __restrict real_off)
+elogd_mqueue_parse(struct elogd_line * __restrict line)
 {
 	elogd_assert(line);
 	elogd_assert(line->vector[ELOGD_LINE_MSG_IOVEC].iov_len >=
 	             ELOG_MQUEUE_MIN_LEN);
 
+	struct timespec           now;
 	struct elog_mqueue_head * head = (struct elog_mqueue_head *)line->data;
 	struct iovec *            vec = &line->vector[ELOGD_LINE_MSG_IOVEC];
 	ssize_t                   blen;
+
+	utime_boot_now(&now);
 
 	blen = elog_parse_mqueue_msg(head, vec->iov_len);
 	if (blen < 0) {
@@ -62,12 +64,11 @@ elogd_mqueue_parse(struct elogd_line * __restrict      line,
 		return (int)blen;
 	}
 
-	/*
-	 * Messages are assigned a timestamp within the boot time space: convert
-	 * them into the realtime clock space.
-	 */
+	/* Messages are assigned a timestamp within the boot time space. */
 	line->tstamp = head->tstamp;
-	utime_tspec_add_clamp(&line->tstamp, real_off);
+	if (utime_tspec_after_eq(&line->tstamp, &now))
+		/* Fixup messages timestamped in the future. */
+		line->tstamp = now;
 
 	line->facility = head->prio & LOG_FACMASK;
 	line->severity = head->prio & LOG_PRIMASK;
@@ -84,10 +85,9 @@ elogd_mqueue_parse(struct elogd_line * __restrict      line,
 	return 0;
 }
 
-static __elogd_nonull(1, 2, 3)
+static __elogd_nonull(1, 2)
 int
 elogd_mqueue_process(struct elogd_mqueue * __restrict      mqueue,
-                     const struct timespec *  __restrict   real_off,
                      struct stroll_dlist_node * __restrict messages)
 {
 	elogd_assert(mqueue);
@@ -104,7 +104,7 @@ elogd_mqueue_process(struct elogd_mqueue * __restrict      mqueue,
 	if (ret)
 		goto release;
 
-	ret = elogd_mqueue_parse(line, real_off);
+	ret = elogd_mqueue_parse(line);
 	if (ret)
 		goto release;
 
@@ -148,15 +148,12 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
 	nr = elogd_queue_free_count(&mqueue->queue);
 	if (nr) {
 		struct stroll_dlist_node tmp = STROLL_DLIST_INIT(tmp);
-		struct timespec          toff;
 		unsigned int             cnt = 0;
-
-		elogd_realtime_offset(&toff);
 
 		do {
 			int ret;
 
-			ret = elogd_mqueue_process(mqueue, &toff, &tmp);
+			ret = elogd_mqueue_process(mqueue, &tmp);
 			switch (ret) {
 			case 0:
 				/*

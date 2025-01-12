@@ -241,8 +241,8 @@ STROLL_RESTORE_WARN
 	if (elogd_svc_parse_tag(line, data, (size_t)(mark - data)))
 		goto err;
 
-	/* Assign message a timestamp within the realtime clock space. */
-	utime_realtime_now(&line->tstamp);
+	/* Assign message a timestamp within the boot time clock space. */
+	utime_boot_now(&line->tstamp);
 
 	return 0;
 
