@@ -323,7 +323,6 @@ close_svc:
 	elogd_svc_close(&pipe->svc, poll);
 fini_queue:
 	elogd_queue_fini(&pipe->outq);
-	elogd_alloc_fini();
 
 	return err;
 }
@@ -332,14 +331,11 @@ void
 elogd_pipe_close(struct elogd_pipe * __restrict  pipe,
                  const struct upoll * __restrict poll)
 {
-	elogd_assert(!pipe->cnt);
-
-	elogd_early_debug("closing pipeline...\n");
+	elogd_debug("closing pipeline...\n");
 
 	elogd_store_close(&pipe->store);
 	elogd_mqueue_close(&pipe->mqueue, poll);
 	elogd_kmsg_close(&pipe->kmsg, poll);
 	elogd_svc_close(&pipe->svc, poll);
 	elogd_queue_fini(&pipe->outq);
-	elogd_alloc_fini();
 }

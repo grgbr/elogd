@@ -1,7 +1,7 @@
 #!/bin/sh -e
 
-prefix="$HOME/devel/tidor/out/root"
-sources="$HOME/devel/tidor"
+prefix="$HOME/devel/test/out/root"
+sources="$HOME/devel/icsw"
 
 log_err()
 {
@@ -50,7 +50,7 @@ do_run()
 	            --volume=/opt/htchain:/opt/htchain:ro \
 	            --volume=$(realpath $prefix):$(realpath $prefix):ro \
 	            --volume=$(realpath $sources):$(realpath $sources):ro \
-	            --volume=$(realpath $xport):/tmp/elogd_test/log:rw \
+	            --volume=$(realpath $xport):/tmp/elogd_test:rw \
 	            --privileged \
 	            "$@"; then
 		return 1
@@ -59,13 +59,22 @@ do_run()
 
 init_cmds=\
 'touch /dev/mqueue/elogd_test &&'\
-'chmod 640 /dev/mqueue/elogd_test'
+' chmod 640 /dev/mqueue/elogd_test &&'\
+' echo 0 > /proc/sys/kernel/randomize_va_space'
+
+elogd_cmd=\
+"$(realpath $prefix)/sbin/elogd"\
+" -u"\
+" -o /tmp/elogd_test/log/messages"\
+" -p /tmp/elogd_test/sock"\
+" -s /tmp/elogd_test/stat"\
+" -n /elogd_test"
 
 gdb()
 {
 	local xport="$1"
 
-	log_info "Running 'gdb --args $(realpath $prefix)/sbin/elogd $*'..."
+	log_info "Running 'gdb --args $elogd_cmd $*'..."
 
 	shift 1
 	if ! do_run "$xport" \
@@ -74,7 +83,7 @@ gdb()
 	            "elogd" \
 	            "/bin/bash" \
 	            "-c" \
-	            "$init_cmds && exec gdb --args $(realpath $prefix)/sbin/elogd -o /tmp/elogd_test/log/messages $*"; then
+	            "$init_cmds && exec gdb --args $elogd_cmd $*"; then
 		return 1
 	fi
 }
@@ -83,7 +92,7 @@ strace()
 {
 	local xport="$1"
 
-	log_info "Running 'strace $(realpath $prefix)/sbin/elogd $*'..."
+	log_info "Running 'strace $elogd_cmd $*'..."
 
 	shift 1
 	if ! do_run "$xport" \
@@ -92,7 +101,25 @@ strace()
 	            "elogd" \
 	            "/bin/bash" \
 	            "-c" \
-	            "$init_cmds && exec strace $(realpath $prefix)/sbin/elogd -o /tmp/elogd_test/log/messages $*"; then
+	            "$init_cmds && exec strace $elogd_cmd $*"; then
+		return 1
+	fi
+}
+
+valgrind()
+{
+	local xport="$1"
+
+	log_info "Running 'valgrind -s $elogd_cmd $*'..."
+
+	shift 1
+	if ! do_run "$xport" \
+	            "--tty=false" \
+	            "--interactive=false" \
+	            "elogd" \
+	            "/bin/bash" \
+	            "-c" \
+	            "$init_cmds && exec valgrind -s $elogd_cmd $*"; then
 		return 1
 	fi
 }
@@ -101,7 +128,7 @@ run()
 {
 	local xport="$1"
 
-	log_info "Running '$(realpath $prefix)/sbin/elogd $*'..."
+	log_info "Running '$elogd_cmd $*'..."
 
 	shift 1
 	if ! do_run "$xport" \
@@ -110,7 +137,7 @@ run()
 	            "elogd" \
 	            "/bin/bash" \
 	            "-c" \
-	            "$init_cmds && exec $(realpath $prefix)/sbin/elogd -o /tmp/elogd_test/log/messages $*"; then
+	            "$init_cmds && exec $elogd_cmd $*"; then
 		return 1
 	fi
 }
@@ -191,6 +218,15 @@ elif [ "$cmd" = "strace" ]; then
 	outdir="$2"
 	shift 2
 	strace "$outdir" "$@"
+elif [ "$cmd" = "valgrind" ]; then
+	if [ $# -lt 3 ]; then
+		log_err 'invalid valgrind command number of arguments.\n'
+		usage
+		exit 1
+	fi
+	outdir="$2"
+	shift 2
+	valgrind "$outdir" "$@"
 elif [ "$cmd" = "run" ]; then
 	if [ $# -lt 2 ]; then
 		log_err 'invalid run command number of arguments.\n'

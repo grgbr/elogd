@@ -258,7 +258,7 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 	elogd_assert(size <= SSIZE_MAX);
 
 	struct stroll_dlist_node * node;
-	struct stroll_dlist_node * last;
+	struct stroll_dlist_node * last = last; /* avoid spurious GCC warning */
 	struct iovec               iovecs[count << 1];
 	unsigned int               cnt = 0;
 	size_t                     bytes = 0;
@@ -466,38 +466,36 @@ elogd_store_close(struct elogd_store * __restrict store)
 	if (store->fd >= 0) {
 		err = ufile_sync(store->fd);
 		if (err)
-			elogd_early_warn("'%s/%s': "
-			                 "cannot sync logging file: %s (%d).\n",
-			                 elogd_conf.dir_path,
-			                 store->base,
-			                 strerror(-err),
-			                 -err);
+			elogd_warn("'%s/%s': "
+			           "cannot sync logging file: %s (%d).\n",
+			           elogd_conf.dir_path,
+			           store->base,
+			           strerror(-err),
+			           -err);
 
 		err = ufile_close(store->fd);
 		if (err)
-			elogd_early_warn("'%s/%s': cannot close logging file: "
-			                 "%s (%d).\n",
-			                 elogd_conf.dir_path,
-			                 store->base,
-			                 strerror(-err),
-			                 -err);
+			elogd_warn("'%s/%s': cannot close logging file: "
+			           "%s (%d).\n",
+			           elogd_conf.dir_path,
+			           store->base,
+			           strerror(-err),
+			           -err);
 	}
 
 	free(store->base);
 
 	err = udir_sync(store->dir);
 	if (err)
-		elogd_early_warn("'%s': cannot sync logging directory: "
-		                 "%s (%d).\n",
-		                 elogd_conf.dir_path,
-		                 strerror(-err),
-		                 -err);
+		elogd_warn("'%s': cannot sync logging directory: %s (%d).\n",
+		           elogd_conf.dir_path,
+		           strerror(-err),
+		           -err);
 
 	err = udir_close(store->dir);
 	if (err)
-		elogd_early_warn("'%s': cannot close logging directory: "
-		                 "%s (%d).\n",
-		                 elogd_conf.dir_path,
-		                 strerror(-err),
-		                 -err);
+		elogd_warn("'%s': cannot close logging directory: %s (%d).\n",
+		           elogd_conf.dir_path,
+		           strerror(-err),
+		           -err);
 }

@@ -164,11 +164,8 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	elogd_assert(line->vector[ELOGD_LINE_MSG_IOVEC].iov_len);
 
 	const char *    data = line->data;
-	struct timespec now;
 	struct iovec *  msg = &line->vector[ELOGD_LINE_MSG_IOVEC];
 	const char *    end = &line->data[msg->iov_len];
-
-	utime_boot_now(&now);
 
 	if (isspace(*data))
 		/* Skip empty and continuation lines. */
@@ -198,14 +195,6 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	end = elogd_skip_field(data, '\n', (size_t)(end - data));
 	if (!end)
 		return -EINVAL;
-
-	/*
-	 * Kernel logging messages are assigned timestamp within the boot time
-	 * space.
-	 */
-	if (utime_tspec_after(&line->tstamp, &now))
-		/* Fixup messages timestamped in the future. */
-		line->tstamp = now;
 
 	line->tag_len = sizeof("kernel") - 1;
 	line->tag = "kernel";
@@ -583,7 +572,7 @@ elogd_kmsg_close(const struct elogd_kmsg * __restrict kmsg,
 	elogd_assert(kmsg->stat_fd >= 0);
 	elogd_assert(poll);
 
-	elogd_early_debug("closing kernel ring-buffer...\n");
+	elogd_debug("closing kernel ring-buffer...\n");
 
 	upoll_unregister(poll, kmsg->dev_fd);
 

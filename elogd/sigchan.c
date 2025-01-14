@@ -117,7 +117,7 @@ elogd_sigchan_close(const struct elogd_sigchan * __restrict chan,
 	elogd_assert(chan->fd >= 0);
 	elogd_assert(poll);
 
-	elogd_early_debug("unregistering signal handlers...\n");
+	elogd_debug("unregistering signal handlers...\n");
 
 	upoll_unregister(poll, chan->fd);
 	usig_close_fd(chan->fd);

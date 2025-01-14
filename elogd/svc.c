@@ -56,12 +56,6 @@ STROLL_RESTORE_WARN
 	elogd_assert(!(msg.msg_flags & MSG_OOB));
 	elogd_assert(!(msg.msg_flags & MSG_ERRQUEUE));
 
-	/*
-	 * TODO:
-	 * * warn if message has been truncated (msg.msg_flags & MSG_TRUNC) ?
-	 * * also warn if credentials control message has been truncated
-	 *   (msg.msg_flags & MSG_CTRUNC) ?
-	 */
 	line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = (size_t)ret;
 	line->data[ret] = '\0';
 
@@ -71,9 +65,17 @@ STROLL_RESTORE_WARN
 		if (cmsg &&
 		    (cmsg->cmsg_level == SOL_SOCKET) &&
 		    (cmsg->cmsg_type == SCM_CREDENTIALS) &&
-		    (cmsg->cmsg_len == CMSG_LEN(sizeof(struct ucred))))
-			line->pid = ((const struct ucred *)
-			             CMSG_DATA(cmsg))->pid;
+		    (cmsg->cmsg_len == CMSG_LEN(sizeof(struct ucred)))) {
+			struct ucred cred;
+
+
+			/*
+			 * CMSG_DATA(cmsg) don't return a pointer suitably
+			 * aligned to struct ucred: use memcpy().
+			 */
+			memcpy(&cred, CMSG_DATA(cmsg), sizeof(cred));
+			line->pid = cred.pid;
+		}
 	}
 
 	if (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))
@@ -118,8 +120,8 @@ elogd_svc_probe_body_start(const char * __restrict string, size_t len)
 		if (!chr || ((&chr[2]) >= &string[len]))
 			break;
 
-		if (chr[1] == ' ')
 STROLL_IGNORE_WARN("-Wcast-qual")
+		if (chr[1] == ' ')
 			return (char *)chr;
 STROLL_RESTORE_WARN
 
@@ -432,7 +434,7 @@ elogd_svc_close(const struct elogd_svc * __restrict svc,
 {
 	elogd_assert(svc);
 
-	elogd_early_debug("closing syslog service...\n");
+	elogd_debug("closing syslog service...\n");
 
 	upoll_unregister(poll, svc->unsk.fd);
 	elogd_queue_fini(&svc->queue);

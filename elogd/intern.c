@@ -33,6 +33,7 @@ elogd_intern_create_line(struct elogd_intern * __restrict intern,
 	if (ret <= 0)
 		goto release;
 	ret = (int)stroll_min((size_t)ret, sizeof(line->data) - 1);
+	line->data[ret - 1] = '\n';
 
 	utime_boot_now(&line->tstamp);
 	line->facility = LOG_SYSLOG;
@@ -109,8 +110,6 @@ static const struct elog_ops elogd_intern_ops = {
 	.close = elogd_intern_close
 };
 
-#warning Is it sure that elogd_intern_init() is __leaf (because of elogd_debug() calls)...
-#warning make use of elogd_early_...() at closing time everywhere.
 void
 elogd_intern_init(struct elogd_intern * __restrict intern)
 {

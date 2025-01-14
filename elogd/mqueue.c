@@ -51,12 +51,9 @@ elogd_mqueue_parse(struct elogd_line * __restrict line)
 	elogd_assert(line->vector[ELOGD_LINE_MSG_IOVEC].iov_len >=
 	             ELOG_MQUEUE_MIN_LEN);
 
-	struct timespec           now;
 	struct elog_mqueue_head * head = (struct elog_mqueue_head *)line->data;
 	struct iovec *            vec = &line->vector[ELOGD_LINE_MSG_IOVEC];
 	ssize_t                   blen;
-
-	utime_boot_now(&now);
 
 	blen = elog_parse_mqueue_msg(head, vec->iov_len);
 	if (blen < 0) {
@@ -65,12 +62,12 @@ elogd_mqueue_parse(struct elogd_line * __restrict line)
 		return (int)blen;
 	}
 
-	/* Messages are assigned a timestamp within the boot time space. */
+	/*
+	 * Messages are assigned a timestamp within the boot time space.
+	 * Inconsistencies in the boot time space is already fixed up by
+	 * elog_parse_mqueue_msg() if required.
+	 */
 	line->tstamp = head->tstamp;
-	if (utime_tspec_after_eq(&line->tstamp, &now))
-		/* Fixup messages timestamped in the future. */
-		line->tstamp = now;
-
 	line->facility = head->prio & LOG_FACMASK;
 	line->severity = head->prio & LOG_PRIMASK;
 	line->tag_len = head->body;
@@ -278,7 +275,7 @@ elogd_mqueue_close(const struct elogd_mqueue * __restrict mqueue,
 	elogd_assert(mqueue);
 	elogd_assert(mqueue->fd >= 0);
 
-	elogd_early_debug("closing message queue...\n");
+	elogd_debug("closing message queue...\n");
 
 	upoll_unregister(poll, mqueue->fd);
 	elogd_queue_fini(&mqueue->queue);

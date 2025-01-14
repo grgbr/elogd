@@ -39,33 +39,43 @@
 
 #endif /* defined(CONFIG_ELOGD_ASSERT) */
 
-#warning augment macros below with check for verbosity level !!
-
 #define elogd_early_err(_format, ...) \
-	fprintf(stderr, \
-	        "%s: {   err} " _format, \
-	        program_invocation_short_name, \
-	        ## __VA_ARGS__)
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_ERR_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: {   err} " _format, \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
 
 #define elogd_early_warn(_format, ...) \
-	fprintf(stderr, \
-	        "%s: {  warn} " _format, \
-	        program_invocation_short_name, \
-	        ## __VA_ARGS__)
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_WARNING_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: {  warn} " _format, \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
 
 #define elogd_early_info(_format, ...) \
-	fprintf(stderr, \
-	        "%s: {  info} " _format, \
-	        program_invocation_short_name, \
-	        ## __VA_ARGS__)
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_INFO_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: {  info} " _format, \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
 
 #if defined(CONFIG_ELOGD_DEBUG)
 
 #define elogd_early_debug(_format, ...) \
-	fprintf(stderr, \
-	        "%s: { debug} " _format, \
-	        program_invocation_short_name, \
-	        ## __VA_ARGS__)
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_DEBUG_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: { debug} " _format, \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
 
 #else  /* !defined(CONFIG_ELOGD_DEBUG) */
 
