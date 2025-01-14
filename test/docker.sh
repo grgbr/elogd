@@ -1,7 +1,7 @@
 #!/bin/sh -e
 
-prefix="$HOME/devel/test/out/root"
-sources="$HOME/devel/icsw"
+prefix="$HOME/devel/tidor/out/root"
+sources="$HOME/devel/tidor"
 
 log_err()
 {
