@@ -16,8 +16,8 @@
 #endif /* defined(basename) */
 #include <string.h>
 
-#include <utils/file.h>
 #include <enbox/enbox.h>
+#include <utils/file.h>
 #include <sys/file.h>
 #include <getopt.h>
 #include <sysexits.h>
@@ -34,6 +34,7 @@ elogd_parse_user_name(const char * __restrict name)
 		ssize_t ret;
 
 		ret = upwd_validate_user_name(name);
+		elogd_assert(ret);
 		if (ret < 0) {
 			elogd_early_err("invalid daemon user name: %s (%d).\n",
 			                strerror((int)-ret),
@@ -75,6 +76,25 @@ elogd_parse_path(const char * __restrict  arg,
 	return EXIT_SUCCESS;
 }
 
+static __elogd_nonull(2, 3)
+int
+elogd_parse_opt_path(const char * __restrict  arg,
+                     const char * __restrict  kind,
+                     const char ** __restrict path)
+{
+	elogd_assert(kind);
+	elogd_assert(path);
+
+	if (arg) {
+		if (elogd_parse_path(arg, kind, path))
+			return EXIT_FAILURE;
+	}
+	else
+		*path = NULL;
+
+	return EXIT_SUCCESS;
+}
+
 static __elogd_nonull(1, 2, 3)
 int
 elogd_parse_fetch_count(const char * __restrict   arg,
@@ -102,28 +122,32 @@ elogd_parse_fetch_count(const char * __restrict   arg,
 	return EXIT_SUCCESS;
 }
 
-static __elogd_nonull(1)
+static
 int
-elogd_parse_mqueue_name(const char * __restrict  arg)
+elogd_parse_mqueue_name(const char * __restrict arg)
 {
-	elogd_assert(arg);
+	if (arg) {
+		ssize_t ret;
 
-	ssize_t ret;
+		ret = umq_validate_name(arg);
+		if (ret < 0) {
+			elogd_early_err("invalid message queue name: %s (%d).\n",
+			                strerror((int)-ret),
+			                (int)-ret);
+			return EXIT_FAILURE;
+		}
 
-	ret = umq_validate_name(arg);
-	if (ret < 0) {
-		elogd_early_err("invalid message queue name: %s (%d).\n",
-		                strerror((int)-ret),
-		                (int)-ret);
-		return EXIT_FAILURE;
+		elogd_conf.mqueue_name = arg;
 	}
-
-	elogd_conf.mqueue_name = arg;
+	else
+		elogd_conf.mqueue_name = NULL;
 
 	return EXIT_SUCCESS;
 }
 
 static bool elogd_free_paths = false;
+
+#if defined(CONFIG_ELOGD_DEBUG)
 
 static
 void
@@ -136,6 +160,12 @@ STROLL_IGNORE_WARN("-Wcast-qual")
 STROLL_RESTORE_WARN
 	}
 }
+
+#else /* !defined(CONFIG_ELOGD_DEBUG) */
+
+static inline void elogd_free_logfile_paths(void) { }
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 static __elogd_nonull(1)
 int
@@ -340,18 +370,26 @@ elogd_parse_delay(const char * __restrict   arg,
 	return EXIT_SUCCESS;
 }
 
+#if defined(CONFIG_ELOGD_DEBUG)
+#define USAGE_DEBUG_LEVEL "|debug"
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+#define USAGE_DEBUG_LEVEL
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
 #define USAGE \
 "Usage: %1$s [OPTIONS]\n" \
 "eLogd early system logging daemon.\n" \
 "\n" \
 "With OPTIONS:\n" \
-"    -u|--user USER        -- run as USER system user\n" \
+"    -u[USER]              -- when USER is specified, run as USER user, do not\n" \
+"    --user[=USER]            keep current user otherwise\n" \
 "                             (defaults to %2$s)\n" \
 "    -l|--lock-path PATH   -- use PATH as pathname to lock file\n" \
 "                             (defaults to `" CONFIG_ELOGD_LOCK_PATH "')\n" \
 "    -o|--log-path PATH    -- use PATH as pathname to output logging files\n" \
 "                             (defaults to `" CONFIG_ELOGD_DIR_PATH "/" CONFIG_ELOGD_FILE_BASE "')\n" \
-"    -e|--log-group GROUP  -- set output logging files group membership to GROUP\n" \
+"    -e[GROUP]             -- when GROUP is specified, set output logging files\n" \
+"    --log-group[=GROUP]      group membership to GROUP, leave it as-is otherwise\n" \
 "                             (defaults to %3$s)\n" \
 "    -m|--log-mode MODE    -- set output logging files file mode bits to MODE\n" \
 "                             (defaults to 0" STROLL_STRING(CONFIG_ELOGD_FILE_MODE) ")\n" \
@@ -363,19 +401,27 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_ROT_NR) ")\n" \
 "    -s|--stat-path PATH   -- use PATH as pathname to private status file\n" \
 "                             (defaults to `" CONFIG_ELOGD_STAT_PATH "')\n" \
+"    -a[PATH]              -- when PATH is specified, use PATH as pathname to\n" \
+"    --kern-path[=PATH]       kernel ring-buffer device file, disable kernel log\n" \
+"                             messages retrieval otherwise\n" \
+"                             (defaults to `" CONFIG_ELOGD_KMSG_PATH "')\n" \
 "    -k|--kern-fetch COUNT -- set maximum number of messages to fetch from\n" \
 "                             kernel ring-buffer to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_KMSG_FETCH) ")\n" \
-"    -n|--mq-name NAME     -- use NAME as shared message queue name\n" \
+"    -n[NAME]              -- when NAME is specified, use NAME as shared message\n" \
+"    --mq-name[=NAME]         queue name, disable POSIX queue source otherwise\n" \
 "                             (defaults to `" CONFIG_ELOGD_MQUEUE_NAME "')\n" \
 "    -q|--mq-fetch COUNT   -- set maximum number of messages to fetch from\n" \
 "                             shared message queue to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_MQUEUE_FETCH) ")\n" \
-"    -p|--sock-path PATH   -- use PATH as pathname to syslog socket file\n" \
+"    -p[PATH]              -- when PATH is specified, use PATH as pathname to\n" \
+"    --sock-path[=PATH]       syslog socket file, disable syslog service socket\n" \
+"                             otherwise\n" \
 "                             (defaults to `" CONFIG_ELOGD_SOCK_PATH "')\n" \
-"    -b|--sock-group GROUP -- set syslog socket file group membership to GROUP\n" \
+"    -b[GROUP]             -- when GROUP is specified, set syslog socket file\n" \
+"    --sock-group[=GROUP]     group membership to GROUP, leave it as-is otherwise\n" \
 "                             (defaults to %4$s)\n" \
 "    -c|--sock-mode MODE   -- set syslog socket file mode bits to MODE\n" \
 "                             (defaults to 0" STROLL_STRING(CONFIG_ELOGD_SVC_MODE) ")\n" \
@@ -387,11 +433,16 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             message store to SECONDS seconds\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_DELAY_MIN) " <= SECONDS <= " STROLL_STRING(CONFIG_ELOGD_DELAY_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_DELAY) ")\n" \
-"    -v|--stdlog LEVEL     -- set standard output log level\n" \
+"    -v[LEVEL]             -- when LEVEL is specified, set stdio log severity to\n" \
+"    --stdlog[=LEVEL]         LEVEL, disable stdio logging otherwise\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
-"    -i|--intlog LEVEL     -- set internal log level\n" \
+"    -i[LEVEL]             -- when LEVEL is specified, set internal log severity\n" \
+"    --intlog[=LEVEL]         to LEVEL, disable internal logging otherwise\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_INTLOG_SEVERITY) ")\n" \
-"    -h|--help             -- this help message\n"
+"    -h|--help             -- this help message\n" \
+"\n" \
+"Where:\n" \
+"    LEVEL := dflt|emerg|alert|crit|err|warn|notice|info" USAGE_DEBUG_LEVEL "\n"
 
 static void
 show_usage(void)
@@ -423,36 +474,47 @@ elogd_parse_cmdln(int argc, char * const argv[])
 	while (true) {
 		int                        opt;
 		static const struct option opts[] = {
-			{ "user",       optional_argument, NULL, 'u' },
-			{ "lock-path",  required_argument, NULL, 'l' },
-			{ "stat-path",  required_argument, NULL, 's' },
-			{ "kern-fetch", required_argument, NULL, 'k' },
-			{ "mq-name",    required_argument, NULL, 'n' },
-			{ "mq-fetch",   required_argument, NULL, 'q' },
-			{ "log-path",   required_argument, NULL, 'o' },
-			{ "log-group",  optional_argument, NULL, 'e' },
-			{ "log-mode",   required_argument, NULL, 'm' },
-			{ "log-size",   required_argument, NULL, 'z' },
-			{ "log-rotate", required_argument, NULL, 'r' },
-			{ "sock-path",  required_argument, NULL, 'p' },
+			{ "kern-path",  optional_argument, NULL, 'a' },
 			{ "sock-group", optional_argument, NULL, 'b' },
 			{ "sock-mode",  required_argument, NULL, 'c' },
+			{ "delay"     , required_argument, NULL, 'd' },
+			{ "log-group",  optional_argument, NULL, 'e' },
 			{ "sock-fetch", required_argument, NULL, 'f' },
-			{ "stdlog",     required_argument, NULL, 'v' },
-			{ "intlog",     required_argument, NULL, 'i' },
 			{ "help",       no_argument,       NULL, 'h' },
+			{ "intlog",     optional_argument, NULL, 'i' },
+			{ "kern-fetch", required_argument, NULL, 'k' },
+			{ "lock-path",  required_argument, NULL, 'l' },
+			{ "log-mode",   required_argument, NULL, 'm' },
+			{ "mq-name",    optional_argument, NULL, 'n' },
+			{ "log-path",   required_argument, NULL, 'o' },
+			{ "sock-path",  optional_argument, NULL, 'p' },
+			{ "mq-fetch",   required_argument, NULL, 'q' },
+			{ "log-rotate", required_argument, NULL, 'r' },
+			{ "stat-path",  required_argument, NULL, 's' },
+			{ "user",       optional_argument, NULL, 'u' },
+			{ "stdlog",     optional_argument, NULL, 'v' },
+			{ "log-size",   required_argument, NULL, 'z' },
 			{ NULL,         0,                 NULL, 0 }
 		};
 
-		opt = getopt_long(argc,
-		                  argv,
-		                  ":u::l:s:k:n:q:o:e::m:z:r:p:b::c:f:d:v:i:h",
-		                  opts,
-		                  NULL);
+		opt = getopt_long(
+			argc,
+			argv,
+			":a::u::l:s:k:n::q:o:e::m:z:r:p::b::c:f:d:v::i::h",
+			opts,
+			NULL);
 		if (opt < 0)
 			break;
 
 		switch (opt) {
+		case 'a':
+			if (elogd_parse_opt_path(
+				optarg,
+				"kernel ring-buffer device file",
+				&elogd_conf.kmsg_path))
+				goto out;
+			break;
+
 		case 'u':
 			if (elogd_parse_user_name(optarg))
 				goto out;
@@ -521,9 +583,9 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		case 'p':
-			if (elogd_parse_path(optarg,
-			                     "syslog socket file",
-			                     &elogd_conf.sock_path))
+			if (elogd_parse_opt_path(optarg,
+			                         "syslog socket file",
+			                         &elogd_conf.sock_path))
 				goto out;
 			break;
 
@@ -588,6 +650,14 @@ elogd_parse_cmdln(int argc, char * const argv[])
 		goto usage;
 	}
 
+	if (!elogd_conf.kmsg_path &&
+	    !elogd_conf.mqueue_name &&
+	    !elogd_conf.sock_path) {
+		elogd_early_err("invalid configuration: "
+		                "all message sources disabled.\n");
+		goto out;
+	}
+
 	elogd_log_fini_parse(&stdlog_parse, &intlog_parse);
 
 	return EXIT_SUCCESS;
@@ -596,7 +666,9 @@ usage:
 	show_usage();
 out:
 	elogd_free_logfile_paths();
+#if defined(CONFIG_ELOGD_DEBUG)
 	elogd_log_fini_parse(&stdlog_parse, &intlog_parse);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	return ret;
 }
@@ -662,7 +734,9 @@ elogd_lock(void)
 	return 0;
 
 close:
+#if defined(CONFIG_ELOGD_DEBUG)
 	ufile_close(elogd_lock_fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
 	elogd_err("cannot acquire lock file: '%s': %s: %s (%d).\n",
 	          elogd_conf.lock_path,
@@ -673,6 +747,8 @@ err:
 	return err;
 }
 
+#if defined(CONFIG_ELOGD_DEBUG)
+
 static
 void
 elogd_unlock(void)
@@ -681,6 +757,17 @@ elogd_unlock(void)
 
 	ufile_close(elogd_lock_fd);
 }
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+static
+void
+elogd_unlock(void)
+{
+	elogd_assert(elogd_lock_fd >= 0);
+}
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 static __elogd_nonull(1) __utils_nothrow
 int
@@ -702,6 +789,24 @@ elogd_setup_loop(struct upoll * __restrict poll, unsigned int nr)
 	return 0;
 }
 
+static __elogd_nonull(1) __elogd_nothrow
+void
+elogd_stop(struct elogd_pipe * __restrict pipe)
+{
+	int ret;
+
+	elogd_notice("stop requested.\n");
+
+	ret = elogd_pipe_stop(pipe);
+
+	if (ret)
+		elogd_err("stopping failed: %s (%d).\n",
+		          strerror(-ret),
+		          -ret);
+	else
+		elogd_info("stopped.\n");
+}
+
 static __elogd_nonull(1, 2) __elogd_nothrow
 int
 elogd_start(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
@@ -717,6 +822,7 @@ elogd_start(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 			break;
 
 		case -ESHUTDOWN:
+			elogd_stop(pipe);
 			return -ESHUTDOWN;
 
 		case -EINTR:
@@ -737,7 +843,7 @@ static __elogd_nonull(1, 2) __elogd_nothrow
 void
 elogd_run(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 {
-	elogd_info("ready.\n");
+	elogd_notice("ready.\n");
 
 	while (true) {
 		int tmout;
@@ -767,26 +873,6 @@ elogd_run(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 	unreachable();
 }
 
-static __elogd_nonull(1) __elogd_nothrow
-int
-elogd_stop(struct elogd_pipe * __restrict pipe)
-{
-	int ret;
-
-	elogd_debug("stopping...\n");
-
-	ret = elogd_pipe_stop(pipe);
-
-	if (ret)
-		elogd_err("stopping failed: %s (%d).\n",
-		          strerror(-ret),
-		          -ret);
-	else
-		elogd_info("stopped.\n");
-
-	return ret;
-}
-
 int
 main(int argc, char * const argv[])
 {
@@ -806,7 +892,7 @@ main(int argc, char * const argv[])
 	nr = 2 * (elogd_conf.kmsg_fetch +
 	          elogd_conf.mqueue_fetch +
 	          elogd_conf.svc_fetch +
-	          elogd_conf.intern_fetch);
+	          elogd_conf.intlog_fetch);
 	if (elogd_alloc_init(nr))
 		goto out;
 
@@ -828,17 +914,20 @@ main(int argc, char * const argv[])
 
 	ret = EXIT_SUCCESS;
 	if (elogd_start(&pipe, &poll))
-		goto stop;
+		goto close_pipe;
 
 	elogd_run(&pipe, &poll);
 
-stop:
 	elogd_stop(&pipe);
+
+close_pipe:
 	elogd_pipe_close(&pipe, &poll);
 close_sigs:
 	elogd_sigchan_close(&sigs, &poll);
 close_poll:
+#if defined(CONFIG_ELOGD_DEBUG)
 	upoll_close(&poll);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 unlock:
 	elogd_unlock();
 fini_log:

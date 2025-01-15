@@ -8,12 +8,105 @@
 #include "kmsg.h"
 #include "pipe.h"
 #include "log.h"
+#include <utils/poll.h>
 #include <utils/time.h>
 #include <utils/file.h>
 #include <ctype.h>
 #include <sys/mman.h>
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+/*
+ * Kernel (logging) ring-buffer message source.
+ *
+ * Meant to retrieve messages from the kernel ring-buffer in a epoll(7)'able
+ * manner.
+ *
+ * See <linux>/doc/Documentation/ABI/testing/dev-kmsg
+ */
+struct elogd_kmsg {
+	/* Queue of fetched kernel ring-buffer messages. */
+	struct elogd_queue  queue;
+	/*
+	 * upoll worker used to trigger fetches when new kernel ring-buffer
+	 * messages are available.
+	 */
+	struct upoll_worker work;
+	/*
+	 * high-level elogd object to be nofified when new kernel ring-buffer
+	 * messages have been fetched.
+	 */
+	struct elogd_pipe * pipe;
+	/* File descriptor pointing to "/dev/kmsg" kernel ring-buffer. */
+	int                 dev_fd;
+	/*
+	 * Pointer to location in elogd status file (see `stat_fd' below) where
+	 * last retrieved kernel ring-buffer message's sequence number is
+	 * stored.
+	 */
+	uint64_t *          seqno;
+	/*
+	 * File descriptor pointing to elogd status file allowing to track
+	 * kernel ring-buffer message sequence number (see `seqno' above).
+	 *
+	 * This 64-bits sequence number allows to reconnect to the buffer and
+	 * reconstruct the read position if needed, e.g after an elogd shutdown
+	 * or crash.
+	 */
+	int                 stat_fd;
+};
+
+#define elogd_kmsg_assert(_kmsg) \
+	elogd_assert(_kmsg); \
+	elogd_assert(elogd_queue_nr(&(_kmsg)->queue) == \
+	             elogd_conf.kmsg_fetch); \
+	elogd_assert((_kmsg)->pipe); \
+	elogd_assert((_kmsg)->dev_fd >= 0); \
+	elogd_assert((_kmsg)->seqno); \
+	elogd_assert((_kmsg)->stat_fd >= 0)
+
+static __elogd_nonull(1, 2)
+int
+elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
+                struct elogd_line * __restrict       line)
+{
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
+	elogd_kmsg_assert(kmsg);
+	elogd_assert(line);
+
+	ssize_t ret;
+
+	/*
+	 * As stated by <linux>/doc/Documentation/ABI/testing/dev-kmsg
+	 *
+	 * Each read() from kmsg receives one single record of the kernel's
+	 * printk buffer.
+	 * kmsg returns EPIPE if record got overwritten in the kernel circular
+	 * buffer.
+	 * Kernel will have updated the seek position to the next available
+	 * record and subsequent read() will return available records again.
+	 */
+	do {
+		ret = ufd_read(kmsg->dev_fd,
+		               line->data,
+		               sizeof(line->data) - 1);
+	} while (ret == -EPIPE);
+
+	if (ret > 0) {
+		line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = (size_t)ret;
+		line->data[ret] = '\0';
+		return 0;
+	}
+	else if (!ret || (ret == -EAGAIN))
+		return -EAGAIN;
+
+	elogd_warn("kernel ring-buffer read failed: %s (%d).\n",
+	           strerror((int)-ret),
+	           (int)-ret);
+
+	return (int)ret;
+}
+
+static __elogd_nonull(1, 2)
 const char *
 elogd_kmsg_parse_prio(struct elogd_line * __restrict line,
                       const char * __restrict        string)
@@ -26,7 +119,7 @@ elogd_kmsg_parse_prio(struct elogd_line * __restrict line,
 
 #if __WORDSIZE == 64
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 const char *
 elogd_kmsg_parse_seqno(const char * __restrict string,
                        uint64_t * __restrict   seqno)
@@ -50,7 +143,7 @@ elogd_kmsg_parse_seqno(const char * __restrict string,
 	return &string[len + 1];
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 const char *
 elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
                         const char * __restrict        string)
@@ -78,7 +171,7 @@ elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
 
 #elif __WORDSIZE == 32
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 const char *
 elogd_kmsg_parse_seqno(const char * __restrict string,
                        uint64_t * __restrict   seqno)
@@ -102,7 +195,7 @@ elogd_kmsg_parse_seqno(const char * __restrict string,
 	return &string[len + 1];
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 const char *
 elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
                         const char * __restrict        string)
@@ -132,7 +225,7 @@ elogd_kmsg_parse_tstamp(struct elogd_line * __restrict line,
 #error "Unsupported machine word size !"
 #endif /* __WORDSIZE == 64 */
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 const char *
 elogd_skip_field(const char * __restrict string, int separator, size_t len)
 {
@@ -155,17 +248,18 @@ elogd_skip_field(const char * __restrict string, int separator, size_t len)
 	return NULL;
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 int
 elogd_kmsg_parse(struct elogd_line * __restrict line,
                  uint64_t * __restrict          seqno)
 {
 	elogd_assert(line);
 	elogd_assert(line->vector[ELOGD_LINE_MSG_IOVEC].iov_len);
+	elogd_assert(seqno);
 
-	const char *    data = line->data;
-	struct iovec *  msg = &line->vector[ELOGD_LINE_MSG_IOVEC];
-	const char *    end = &line->data[msg->iov_len];
+	const char *   data = line->data;
+	struct iovec * msg = &line->vector[ELOGD_LINE_MSG_IOVEC];
+	const char *   end = &line->data[msg->iov_len];
 
 	if (isspace(*data))
 		/* Skip empty and continuation lines. */
@@ -217,57 +311,13 @@ err:
 	return -EINVAL;
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
-int
-elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
-                struct elogd_line * __restrict       line)
-{
-	elogd_assert(kmsg);
-	elogd_assert(kmsg->dev_fd >= 0);
-	elogd_assert(kmsg->seqno);
-	elogd_assert(kmsg->stat_fd >= 0);
-
-	ssize_t ret;
-
-	/*
-	 * As stated by <linux>/doc/Documentation/ABI/testing/dev-kmsg
-	 *
-	 * Each read() from kmsg receives one single record of the kernel's
-	 * printk buffer.
-	 * kmsg returns EPIPE if record got overwritten in the kernel circular
-	 * buffer.
-	 * Kernel will have updated the seek position to the next available
-	 * record and subsequent read() will return available records again.
-	 */
-	do {
-		ret = ufd_read(kmsg->dev_fd,
-		               line->data,
-		               sizeof(line->data) - 1);
-	} while (ret == -EPIPE);
-
-	if (ret > 0) {
-		line->vector[ELOGD_LINE_MSG_IOVEC].iov_len = (size_t)ret;
-		line->data[ret] = '\0';
-		return 0;
-	}
-	else if (!ret || (ret == -EAGAIN))
-		return -EAGAIN;
-
-	elogd_warn("kernel ring-buffer read failed: %s (%d).\n",
-	           strerror((int)-ret),
-	           (int)-ret);
-
-	return (int)ret;
-}
-
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 int
 elogd_kmsg_process(struct elogd_kmsg * __restrict kmsg)
 {
-	elogd_assert(kmsg);
-	elogd_assert(kmsg->dev_fd >= 0);
-	elogd_assert(kmsg->seqno);
-	elogd_assert(kmsg->stat_fd >= 0);
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
+	elogd_kmsg_assert(kmsg);
 
 	struct elogd_line * line;
 	uint64_t            seqno;
@@ -297,13 +347,14 @@ release:
 	return ret;
 }
 
-static __elogd_nonull(1, 3) __elogd_nothrow
+static __elogd_nonull(1, 3)
 int
 elogd_kmsg_dispatch(struct upoll_worker * work,
                     uint32_t              state __unused,
                     const struct upoll *  poll __unused)
 {
 	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
 	elogd_assert(work);
 	elogd_assert(state);
 	elogd_assert(!(state & EPOLLOUT));
@@ -316,11 +367,7 @@ elogd_kmsg_dispatch(struct upoll_worker * work,
 	unsigned int        cnt;
 
 	kmsg = containerof(work, struct elogd_kmsg, work);
-	elogd_assert(kmsg);
-	elogd_assert(kmsg->pipe);
-	elogd_assert(kmsg->dev_fd >= 0);
-	elogd_assert(kmsg->seqno);
-	elogd_assert(kmsg->stat_fd >= 0);
+	elogd_kmsg_assert(kmsg);
 
 	cnt = elogd_queue_free_count(&kmsg->queue);
 	if (cnt) {
@@ -349,14 +396,13 @@ publish:
 	return 0;
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 int
 elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 {
-	elogd_assert(kmsg);
-	elogd_assert(kmsg->dev_fd >= 0);
-	elogd_assert(kmsg->seqno);
-	elogd_assert(kmsg->stat_fd >= 0);
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
+	elogd_kmsg_assert(kmsg);
 
 	struct elogd_line * line;
 	uint64_t            seqno;
@@ -402,6 +448,7 @@ int
 elogd_kmsg_open_stat(struct elogd_kmsg * __restrict kmsg)
 {
 	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
 	elogd_assert(kmsg);
 
 	int          fd;
@@ -480,11 +527,14 @@ err:
 	return err;
 }
 
+static __elogd_nonull(1, 2, 3)
 int
 elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
                 struct elogd_pipe * __restrict  pipe,
                 const struct upoll * __restrict poll)
 {
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
 	elogd_assert(kmsg);
 	elogd_assert(pipe);
 	elogd_assert(poll);
@@ -499,7 +549,7 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
 	 * This will require CAP_SYSLOG or CAP_SYS_ADMIN capability if kernel is
 	 * built with CONFIG_SECURITY_DMESG_RESTRICT enabled !!
 	 */
-	fd = ufd_open("/dev/kmsg",
+	fd = ufd_open(elogd_conf.kmsg_path,
 	              O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NOFOLLOW |
 	              O_NONBLOCK);
 	if (fd < 0) {
@@ -530,6 +580,8 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
 	elogd_queue_init(&kmsg->queue, elogd_conf.kmsg_fetch);
 	kmsg->dev_fd = fd;
 
+	kmsg->pipe = pipe;
+
 	if (*kmsg->seqno) {
 		err = elogd_kmsg_skip(kmsg);
 		if (err) {
@@ -538,7 +590,6 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
 		}
 	}
 
-	kmsg->pipe = pipe;
 	if (elogd_queue_busy_count(&kmsg->queue))
 		elogd_pipe_on_alive(pipe, &kmsg->queue);
 
@@ -552,7 +603,9 @@ close_stat:
 	munmap(kmsg->seqno, sizeof(*kmsg->seqno));
 	ufile_close(kmsg->stat_fd);
 close_dev:
+#if defined(CONFIG_ELOGD_DEBUG)
 	ufd_close(fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
 	elogd_err("cannot initialize kernel ring-buffer: %s: %s (%d).\n",
 	          msg,
@@ -562,24 +615,74 @@ err:
 	return err;
 }
 
+static __elogd_nonull(1, 2)
 void
 elogd_kmsg_close(const struct elogd_kmsg * __restrict kmsg,
-                 const struct upoll * __restrict      poll)
+                 const struct upoll * __restrict      poll __unused)
 {
-	elogd_assert(kmsg);
-	elogd_assert(kmsg->dev_fd >= 0);
-	elogd_assert(kmsg->seqno);
-	elogd_assert(kmsg->stat_fd >= 0);
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
+	elogd_kmsg_assert(kmsg);
 	elogd_assert(poll);
 
 	elogd_debug("closing kernel ring-buffer...\n");
 
+#if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, kmsg->dev_fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	elogd_queue_fini(&kmsg->queue);
 
 	munmap(kmsg->seqno, sizeof(*kmsg->seqno));
 	ufile_close(kmsg->stat_fd);
 
+#if defined(CONFIG_ELOGD_DEBUG)
 	ufd_close(kmsg->dev_fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+}
+
+struct elogd_kmsg *
+elogd_kmsg_create(struct elogd_pipe * __restrict  pipe,
+                  const struct upoll * __restrict poll)
+{
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
+	struct elogd_kmsg * kmsg;
+
+	kmsg = malloc(sizeof(*kmsg));
+	if (!kmsg) {
+		errno = -ENOMEM;
+		return NULL;
+	}
+
+	if (elogd_kmsg_open(kmsg, pipe, poll))
+		goto free;
+
+	return kmsg;
+
+free:
+#if defined(CONFIG_ELOGD_DEBUG)
+	free(kmsg);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
+	return NULL;
+}
+
+void
+elogd_kmsg_destroy(struct elogd_kmsg * __restrict  kmsg,
+                   const struct upoll * __restrict poll)
+{
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kmsg_path);
+	elogd_kmsg_assert(kmsg);
+	elogd_assert(poll);
+
+	elogd_kmsg_close(kmsg, poll);
+
+#if defined(CONFIG_ELOGD_DEBUG)
+	free(kmsg);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 }

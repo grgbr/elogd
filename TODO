@@ -11,4 +11,12 @@ rendered as \x09)
 
 * move to slist impl
 
-* internal message queue support
+* review source: common.[ch] pipe.[ch] main.[ch]
+
+* make sure all line end with '\n'
+
+* stats ?
+
+* traces ?
+
+* Optional sources at build time ?

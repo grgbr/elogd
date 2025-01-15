@@ -27,7 +27,7 @@ elogd_pipe_reset_alive(struct elogd_pipe * __restrict pipe)
 		 */
 		elogd_pipe_on_alive(pipe, &pipe->outq);
 
-	if (elogd_intern_alive(pipe->intern))
+	if (pipe->intern && elogd_intern_alive(pipe->intern))
 		/*
 		 * Internal message queue contains partially processed messages:
 		 * mark it as active.
@@ -241,6 +241,8 @@ elogd_pipe_stop(struct elogd_pipe * __restrict pipe)
 {
 	int ret = 0;
 
+	elogd_pipe_reset_alive(pipe);
+
 	if (pipe->cnt)
 		elogd_pipe_merge_queues(pipe);
 
@@ -257,7 +259,8 @@ elogd_pipe_stop(struct elogd_pipe * __restrict pipe)
 			break;
 	}
 
-	elogd_intern_stop(pipe->intern);
+	if (pipe->intern)
+		elogd_intern_stop(pipe->intern);
 
 	return ret;
 }
@@ -285,22 +288,40 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 
 	pipe->intern = elogd_log_the_intern();
 
-	err = elogd_svc_open(&pipe->svc, pipe, poll);
-	if (err)
-		goto fini_queue;
+	if (elogd_conf.sock_path) {
+		pipe->svc = elogd_svc_create(pipe, poll);
+		if (!pipe->svc) {
+			err = -errno;
+			goto fini_queue;
+		}
+	}
+	else
+		pipe->svc = NULL;
 
+	if (elogd_conf.kmsg_path) {
 #warning Fix /dev/kmsg perms
-	err = elogd_kmsg_open(&pipe->kmsg, pipe, poll);
-	if (err)
-		goto close_svc;
+		pipe->kmsg = elogd_kmsg_create(pipe, poll);
+		if (!pipe->kmsg) {
+			err = -errno;
+			goto destroy_svc;
+		}
+	}
+	else
+		pipe->kmsg = NULL;
 
-	err = elogd_mqueue_open(&pipe->mqueue, pipe, poll);
-	if (err)
-		goto close_kmsg;
+	if (elogd_conf.mqueue_name) {
+		pipe->mqueue = elogd_mqueue_create(pipe, poll);
+		if (!pipe->mqueue) {
+			err = -errno;
+			goto destroy_kmsg;
+		}
+	}
+	else
+		pipe->mqueue = NULL;
 
 	err = elogd_store_open(&pipe->store);
 	if (err)
-		goto close_mqueue;
+		goto destroy_mqueue;
 
 	/*
 	 * Some queue may have switched to active state at opening time. Make
@@ -315,12 +336,15 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 
 	return 0;
 
-close_mqueue:
-	elogd_mqueue_close(&pipe->mqueue, poll);
-close_kmsg:
-	elogd_kmsg_close(&pipe->kmsg, poll);
-close_svc:
-	elogd_svc_close(&pipe->svc, poll);
+destroy_mqueue:
+	if (pipe->mqueue)
+		elogd_mqueue_destroy(pipe->mqueue, poll);
+destroy_kmsg:
+	if (pipe->kmsg)
+		elogd_kmsg_destroy(pipe->kmsg, poll);
+destroy_svc:
+	if (pipe->svc)
+		elogd_svc_destroy(pipe->svc, poll);
 fini_queue:
 	elogd_queue_fini(&pipe->outq);
 
@@ -334,8 +358,13 @@ elogd_pipe_close(struct elogd_pipe * __restrict  pipe,
 	elogd_debug("closing pipeline...\n");
 
 	elogd_store_close(&pipe->store);
-	elogd_mqueue_close(&pipe->mqueue, poll);
-	elogd_kmsg_close(&pipe->kmsg, poll);
-	elogd_svc_close(&pipe->svc, poll);
+
+	if (pipe->mqueue)
+		elogd_mqueue_destroy(pipe->mqueue, poll);
+	if (pipe->kmsg)
+		elogd_kmsg_destroy(pipe->kmsg, poll);
+	if (pipe->svc)
+		elogd_svc_destroy(pipe->svc, poll);
+
 	elogd_queue_fini(&pipe->outq);
 }

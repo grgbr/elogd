@@ -20,6 +20,9 @@ extern struct elog_multi elogd_logger;
 #define elogd_warn(_format, ...) \
 	elog_warn(&elogd_logger, _format, ## __VA_ARGS__)
 
+#define elogd_notice(_format, ...) \
+	elog_notice(&elogd_logger, _format, ## __VA_ARGS__)
+
 #define elogd_info(_format, ...) \
 	elog_info(&elogd_logger, _format, ## __VA_ARGS__)
 
@@ -36,17 +39,17 @@ extern struct elog_multi elogd_logger;
 
 extern struct elogd_intern *
 elogd_log_the_intern(void)
-	__elogd_nothrow __leaf __returns_nonull __warn_result;
+	__elogd_nothrow __leaf __warn_result;
 
 extern int
 elogd_log_parse_std(struct elog_parse * __restrict parse,
                     const char * __restrict        arg)
-	__elogd_nonull(1, 2) __elogd_nothrow __leaf __warn_result;
+	__elogd_nonull(1) __elogd_nothrow __leaf __warn_result;
 
 extern int
 elogd_log_parse_intern(struct elog_parse * __restrict parse,
                        const char * __restrict        arg)
-	__elogd_nonull(1, 2) __elogd_nothrow __leaf __warn_result;
+	__elogd_nonull(1) __elogd_nothrow __leaf __warn_result;
 
 extern void
 elogd_log_init_parse(struct elog_parse * __restrict stdlog_parse,

@@ -1,7 +1,7 @@
 #!/bin/sh -e
 
-prefix="$HOME/devel/test/out/root"
-sources="$HOME/devel/icsw"
+prefix="$HOME/devel/tidor/out/root"
+sources="$HOME/devel/tidor"
 
 log_err()
 {
@@ -66,9 +66,9 @@ elogd_cmd=\
 "$(realpath $prefix)/sbin/elogd"\
 " -u"\
 " -o /tmp/elogd_test/log/messages"\
-" -p /tmp/elogd_test/sock"\
+" --sock-path=/tmp/elogd_test/sock"\
 " -s /tmp/elogd_test/stat"\
-" -n /elogd_test"
+" --mq-name=/elogd_test"
 
 gdb()
 {
@@ -110,7 +110,7 @@ valgrind()
 {
 	local xport="$1"
 
-	log_info "Running 'valgrind -s $elogd_cmd $*'..."
+	log_info "Running 'valgrind -s --leak-check=full  --show-leak-kinds=all $elogd_cmd $*'..."
 
 	shift 1
 	if ! do_run "$xport" \
@@ -119,7 +119,7 @@ valgrind()
 	            "elogd" \
 	            "/bin/bash" \
 	            "-c" \
-	            "$init_cmds && exec valgrind -s $elogd_cmd $*"; then
+	            "$init_cmds && exec valgrind -s --leak-check=full  --show-leak-kinds=all $elogd_cmd $*"; then
 		return 1
 	fi
 }

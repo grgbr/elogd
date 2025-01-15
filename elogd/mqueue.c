@@ -10,6 +10,39 @@
 #include "log.h"
 #include <utils/fd.h>
 #include <utils/time.h>
+#include <utils/poll.h>
+
+/*
+ * POSIX queue message source.
+ *
+ * Meant to retrieve messages from a POSIX message queue in a epoll(7)'able
+ * manner.
+ *
+ * See mq_overview(7).
+ */
+struct elogd_mqueue {
+	/* Queue of fetched POSIX queue messages. */
+	struct elogd_queue  queue;
+	/*
+	 * upoll worker used to trigger fetches when new messages are available
+	 * from a POSIX queue.
+	 */
+	struct upoll_worker work;
+	/*
+	 * high-level elogd object to be nofified when new POSIX queue
+	 * messages have been fetched.
+	 */
+	struct elogd_pipe * pipe;
+	/* File descriptor pointing to POSIX queue. */
+	mqd_t               fd;
+};
+
+#define elogd_mqueue_assert(_mqueue) \
+	elogd_assert(_mqueue); \
+	elogd_assert(elogd_queue_nr(&(_mqueue)->queue) == \
+	             elogd_conf.mqueue_fetch); \
+	elogd_assert((_mqueue)->pipe); \
+	elogd_assert((_mqueue)->fd >= 0)
 
 #define ELOG_MQUEUE_MIN_LEN \
 	(sizeof(struct elog_mqueue_head) + \
@@ -21,8 +54,9 @@ int
 elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
                   struct elogd_line * __restrict         line)
 {
-	elogd_assert(mqueue);
-	elogd_assert(mqueue->fd >= 0);
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.mqueue_name);
+	elogd_mqueue_assert(mqueue);
 	elogd_assert(line);
 
 	ssize_t ret;
@@ -43,7 +77,7 @@ elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
 	return 0;
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 int
 elogd_mqueue_parse(struct elogd_line * __restrict line)
 {
@@ -88,8 +122,10 @@ int
 elogd_mqueue_process(struct elogd_mqueue * __restrict      mqueue,
                      struct stroll_dlist_node * __restrict messages)
 {
-	elogd_assert(mqueue);
-	elogd_assert(mqueue->fd >= 0);
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.mqueue_name);
+	elogd_mqueue_assert(mqueue);
+	elogd_assert(messages);
 
 	struct elogd_line * line;
 	int                 ret;
@@ -126,6 +162,7 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
                       const struct upoll *  poll __unused)
 {
 	elogd_assert_conf();
+	elogd_assert(elogd_conf.mqueue_name);
 	elogd_assert(work);
 	elogd_assert(state);
 	elogd_assert(!(state & EPOLLOUT));
@@ -139,9 +176,7 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
 	unsigned int          nr;
 
 	mqueue = containerof(work, struct elogd_mqueue, work);
-	elogd_assert(mqueue);
-	elogd_assert(mqueue->pipe);
-	elogd_assert(mqueue->fd >= 0);
+	elogd_mqueue_assert(mqueue);
 
 	nr = elogd_queue_free_count(&mqueue->queue);
 	if (nr) {
@@ -193,12 +228,14 @@ sort:
 	return 0;
 }
 
+static __elogd_nonull(1, 2, 3)
 int
 elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
                   struct elogd_pipe * __restrict   pipe,
                   const struct upoll * __restrict  poll)
 {
 	elogd_assert_conf();
+	elogd_assert(elogd_conf.mqueue_name);
 	elogd_assert(mqueue);
 	elogd_assert(pipe);
 	elogd_assert(poll);
@@ -257,7 +294,9 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
 	return 0;
 
 close:
+#if defined(CONFIG_ELOGD_DEBUG)
 	umq_close(fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
 	elogd_err("cannot initialize message queue: '%s': %s: %s (%d).\n",
 	          elogd_conf.mqueue_name,
@@ -268,16 +307,71 @@ err:
 	return err;
 }
 
+static __elogd_nonull(1, 2)
 void
 elogd_mqueue_close(const struct elogd_mqueue * __restrict mqueue,
-                   const struct upoll * __restrict        poll)
+                   const struct upoll * __restrict        poll __unused)
 {
-	elogd_assert(mqueue);
-	elogd_assert(mqueue->fd >= 0);
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.mqueue_name);
+	elogd_mqueue_assert(mqueue);
+	elogd_assert(poll);
 
 	elogd_debug("closing message queue...\n");
 
+#if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, mqueue->fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
 	elogd_queue_fini(&mqueue->queue);
+
+#if defined(CONFIG_ELOGD_DEBUG)
 	umq_close(mqueue->fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+}
+
+struct elogd_mqueue *
+elogd_mqueue_create(struct elogd_pipe * __restrict  pipe,
+                    const struct upoll * __restrict poll)
+{
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
+	struct elogd_mqueue * mqueue;
+
+	mqueue = malloc(sizeof(*mqueue));
+	if (!mqueue) {
+		errno = -ENOMEM;
+		return NULL;
+	}
+
+	if (elogd_mqueue_open(mqueue, pipe, poll))
+		goto free;
+
+	return mqueue;
+
+free:
+#if defined(CONFIG_ELOGD_DEBUG)
+	free(mqueue);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
+	return NULL;
+}
+
+void
+elogd_mqueue_destroy(struct elogd_mqueue * __restrict mqueue,
+                     const struct upoll * __restrict  poll)
+{
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.mqueue_name);
+	elogd_mqueue_assert(mqueue);
+	elogd_assert(poll);
+
+	elogd_mqueue_close(mqueue, poll);
+
+#if defined(CONFIG_ELOGD_DEBUG)
+	free(mqueue);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 }

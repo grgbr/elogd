@@ -23,6 +23,7 @@ struct elogd_config elogd_conf = {
 	                                  CONFIG_ELOGD_USER),
 	.lock_path       = CONFIG_ELOGD_LOCK_PATH,
 	.stat_path       = CONFIG_ELOGD_STAT_PATH,
+	.kmsg_path       = CONFIG_ELOGD_KMSG_PATH,
 	.kmsg_fetch      = CONFIG_ELOGD_KMSG_FETCH,
 	.mqueue_name     = CONFIG_ELOGD_MQUEUE_NAME,
 	.mqueue_fetch    = CONFIG_ELOGD_MQUEUE_FETCH,
@@ -41,7 +42,7 @@ struct elogd_config elogd_conf = {
 	                                  CONFIG_ELOGD_SVC_GROUP),
 	.svc_mode        = ELOGD_SVC_MODE,
 	.svc_fetch       = CONFIG_ELOGD_SVC_FETCH,
-	.intern_fetch    = CONFIG_ELOGD_INTERN_FETCH,
+	.intlog_fetch    = CONFIG_ELOGD_INTLOG_FETCH,
 	.delay           = ELOGD_DELAY
 };
 
@@ -223,7 +224,6 @@ elogd_line_fixup_partial(struct elogd_line * __restrict line, size_t written)
  ******************************************************************************/
 
 struct elogd_alloc {
-	/* TODO: move to slist ? */
 	struct stroll_dlist_node free;
 	struct elogd_line *      lines;
 	unsigned int             nr;
@@ -338,7 +338,9 @@ elogd_alloc_fini(void)
 
 	elogd_early_debug("terminating line allocator...\n");
 
+#if defined(CONFIG_ELOGD_DEBUG)
 	free(elogd_the_alloc.lines);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 }
 
 /******************************************************************************
@@ -513,14 +515,16 @@ elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
 }
 
 void
-elogd_queue_fini(const struct elogd_queue * __restrict queue)
+elogd_queue_fini(const struct elogd_queue * __restrict queue __unused)
 {
 	elogd_assert(queue);
 	elogd_assert(queue->nr);
 	elogd_assert(queue->cnt <= queue->nr);
 	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
 
+#if defined(CONFIG_ELOGD_DEBUG)
 	if (queue->cnt)
 		elogd_line_destroy_bulk(stroll_dlist_next(&queue->head),
 		                        stroll_dlist_prev(&queue->head));
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 }

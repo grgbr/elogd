@@ -18,26 +18,26 @@ struct elogd_intern;
 #define ELOGD_PIPE_POLL_NR (3U)
 
 /*
- * High-level pipeline object muxing pollable message sources with a single
+ * High-level pipeline object muxing pollable message sources into a single
  * output queue.
  */
 struct elogd_pipe {
 	/* Count of active message queues. */
-	unsigned int         cnt;
+	unsigned int          cnt;
 	/*
 	 * Array of active message queues: 1 array slot for each "pollable"
 	 * input message source queue + 1 for internal message source
 	 * + 1 for output queue.
 	 */
-	struct elogd_queue * alive[ELOGD_PIPE_POLL_NR + 2];
+	struct elogd_queue *  alive[ELOGD_PIPE_POLL_NR + 2];
 	/* Output message queue used as input to message store. */
 	struct elogd_queue    outq;
 	/* Kernel ring-buffer pollable message source. */
-	struct elogd_kmsg     kmsg;
+	struct elogd_kmsg *   kmsg;
 	/* Syslog socket based service pollable message source. */
-	struct elogd_svc      svc;
+	struct elogd_svc *    svc;
 	/* POSIX message queue based service pollable message source. */
-	struct elogd_mqueue   mqueue;
+	struct elogd_mqueue * mqueue;
 	/* Internal message source. */
 	struct elogd_intern * intern;
 	/* Output message store. */

@@ -15,8 +15,9 @@
 #include "elogd/config.h"
 #include <elog/elog.h>
 #include <utils/mqueue.h>
-#include <stroll/dlist.h>
 #include <utils/path.h>
+#include <utils/pwd.h>
+#include <stroll/dlist.h>
 #include <linux/taskstats.h>
 
 #if defined(CONFIG_ELOGD_ASSERT)
@@ -113,6 +114,7 @@ struct elogd_config {
 	const char *           user;
 	const char *           lock_path;
 	const char *           stat_path;
+	const char *           kmsg_path;
 	unsigned int           kmsg_fetch;
 	const char *           mqueue_name;
 	unsigned int           mqueue_fetch;
@@ -128,7 +130,7 @@ struct elogd_config {
 	mode_t                 svc_mode;
 	unsigned int           svc_fetch;
 	struct elog_conf       intlog;
-	unsigned int           intern_fetch;
+	unsigned int           intlog_fetch;
 	unsigned int           delay;
 	struct elog_stdio_conf stdlog;
 };
@@ -136,11 +138,15 @@ struct elogd_config {
 extern struct elogd_config elogd_conf;
 
 #define elogd_assert_conf() \
-	elogd_assert(!elogd_conf.user || elogd_conf.user[0]); \
+	elogd_assert(!elogd_conf.user || \
+	             upwd_validate_user_name(elogd_conf.user) > 0); \
 	elogd_assert(upath_validate_path_name(elogd_conf.lock_path) > 0); \
 	elogd_assert(upath_validate_path_name(elogd_conf.stat_path) > 0); \
+	elogd_assert(!elogd_conf.kmsg_path || \
+	             (upath_validate_path_name(elogd_conf.kmsg_path) > 0)); \
 	elogd_assert(elogd_conf.kmsg_fetch > 0); \
-	elogd_assert(umq_validate_name(elogd_conf.mqueue_name) > 0); \
+	elogd_assert(!elogd_conf.mqueue_name || \
+	             (umq_validate_name(elogd_conf.mqueue_name) > 0)); \
 	elogd_assert(elogd_conf.mqueue_fetch > 0); \
 	elogd_assert(upath_validate_path_name(elogd_conf.dir_path) > 0); \
 	elogd_assert(elogd_conf.file_len); \
@@ -152,14 +158,17 @@ extern struct elogd_config elogd_conf;
 	elogd_assert(elogd_conf.max_size <= ELOGD_FILE_SIZE_MAX); \
 	elogd_assert(elogd_conf.max_rot); \
 	elogd_assert(elogd_conf.max_rot <= ELOGD_FILE_ROT_MAX); \
-	elogd_assert(upath_validate_path_name(elogd_conf.sock_path) > 0); \
+	elogd_assert(!elogd_conf.sock_path || \
+	             (upath_validate_path_name(elogd_conf.sock_path) > 0)); \
 	elogd_assert(!elogd_conf.svc_group || elogd_conf.svc_group[0]); \
 	elogd_assert(!(elogd_conf.svc_mode & ~((mode_t)DEFFILEMODE))); \
 	elogd_assert(elogd_conf.svc_fetch > 0); \
-	elogd_assert(!(elogd_conf.intlog.severity & ~LOG_PRIMASK)); \
-	elogd_assert(elogd_conf.intern_fetch > 0); \
+	elogd_assert((elogd_conf.intlog.severity == -1) ^ \
+	             !(elogd_conf.intlog.severity & ~LOG_PRIMASK)); \
+	elogd_assert(elogd_conf.intlog_fetch > 0); \
 	elogd_assert(elogd_conf.delay > 0); \
-	elogd_assert(!(elogd_conf.stdlog.super.severity & ~LOG_PRIMASK)); \
+	elogd_assert((elogd_conf.stdlog.super.severity == -1) ^ \
+	             !(elogd_conf.stdlog.super.severity & ~LOG_PRIMASK)); \
 	elogd_assert(elogd_conf.stdlog.format == \
 	             (ELOG_TAG_FMT | ELOG_SEVERITY_FMT))
 
@@ -487,7 +496,7 @@ elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
 	__elogd_nonull(1) __elogd_nothrow;
 
 extern void
-elogd_queue_fini(const struct elogd_queue * __restrict queue);
+elogd_queue_fini(const struct elogd_queue * __restrict queue)
 	__elogd_nonull(1) __elogd_nothrow;
 
 #endif /* _ELOGD_COMMON_H */

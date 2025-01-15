@@ -9,28 +9,19 @@
 #define _ELOGD_SVC_H
 
 #include "common.h"
-#include <utils/poll.h>
-#include <utils/unsk.h>
 
+struct elogd_svc;
 struct elogd_pipe;
+struct upoll;
 
-/* Syslog service processor. */
-struct elogd_svc {
-	struct elogd_queue  queue;
-	struct upoll_worker work;
-	struct unsk_svc     unsk;
-	struct elogd_pipe * pipe;
-};
-
-extern int
-elogd_svc_open(struct elogd_svc * __restrict   svc,
-               struct elogd_pipe * __restrict  pipe,
-               const struct upoll * __restrict poll)
-	__elogd_nonull(1, 2, 3) __leaf __warn_result;
+extern struct elogd_svc *
+elogd_svc_create(struct elogd_pipe * __restrict  pipe,
+                 const struct upoll * __restrict poll)
+	__elogd_nonull(1, 2) __leaf __warn_result;
 
 extern void
-elogd_svc_close(const struct elogd_svc * __restrict svc,
-                const struct upoll * __restrict     poll)
+elogd_svc_destroy(struct elogd_svc * __restrict  svc,
+                  const struct upoll * __restrict poll)
 	__elogd_nonull(1, 2) __leaf;
 
 #endif /* _ELOGD_SVC_H */

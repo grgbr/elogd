@@ -10,8 +10,16 @@
 #include <utils/time.h>
 #include <utils/file.h>
 #include <utils/dir.h>
-#include <utils/pwd.h>
 #include <sys/statvfs.h>
+
+#define elogd_store_assert(_store) \
+	elogd_assert(_store); \
+	elogd_assert((_store)->dir >= 0); \
+	elogd_assert(upath_validate_path_name((_store)->base) > \
+	             (ssize_t)(elogd_conf.file_len + 1)); \
+	elogd_assert((_store)->base[elogd_conf.file_len] == '.'); \
+	elogd_assert((_store)->base[elogd_store_file_name_max() + \
+	                            elogd_conf.file_len] == '.')
 
 static inline
 size_t
@@ -29,13 +37,7 @@ int
 elogd_store_open_file(struct elogd_store * __restrict store)
 {
 	elogd_assert_conf();
-	elogd_assert(store);
-	elogd_assert(store->dir >= 0);
-	elogd_assert(upath_validate_path_name(store->base) >
-	             (ssize_t)(elogd_conf.file_len + 1));
-	elogd_assert(store->base[elogd_conf.file_len] == '.');
-	elogd_assert(store->base[elogd_store_file_name_max() +
-	                         elogd_conf.file_len] == '.');
+	elogd_store_assert(store);
 
 	struct stat  st;
 	int          err;
@@ -112,14 +114,8 @@ int
 elogd_store_rotate(struct elogd_store * __restrict store)
 {
 	elogd_assert_conf();
-	elogd_assert(store);
 	elogd_assert(store->fd >= 0);
-	elogd_assert(store->dir >= 0);
-	elogd_assert(upath_validate_path_name(store->base) >
-	             (ssize_t)(elogd_conf.file_len + 1));
-	elogd_assert(store->base[elogd_conf.file_len] == '.');
-	elogd_assert(store->base[elogd_store_file_name_max() +
-	                         elogd_conf.file_len] == '.');
+	elogd_store_assert(store);
 	elogd_assert(elogd_conf.max_rot > 1);
 
 	unsigned int rot = elogd_conf.max_rot - 1;
@@ -192,7 +188,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 	return ret;
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 void
 elogd_store_complete_partial_writev(struct elogd_queue * __restrict queue,
                                     const struct iovec * __restrict iovecs,
@@ -243,12 +239,8 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
                         size_t                          size)
 {
 	elogd_assert_conf();
-	elogd_assert(store);
 	elogd_assert(store->fd >= 0);
-	elogd_assert(store->dir >= 0);
-	elogd_assert(upath_validate_path_name(store->base) >
-	             (ssize_t)(elogd_conf.file_len + 1));
-	elogd_assert(store->base[elogd_conf.file_len] == '.');
+	elogd_store_assert(store);
 	elogd_assert(queue);
 	elogd_assert(count);
 	elogd_assert(count <= ((unsigned int)IOV_MAX / 2));
@@ -309,10 +301,13 @@ elogd_store_write_queue(struct elogd_store * __restrict store,
 	return (int)ret;
 }
 
-static __elogd_nonull(1) __elogd_pure __elogd_nothrow
+static __elogd_nonull(1) __elogd_pure
 size_t
 elogd_store_free_size(const struct elogd_store * __restrict store)
 {
+	elogd_assert_conf();
+	elogd_store_assert(store);
+
 	if (elogd_conf.max_rot > 1) {
 		size_t sz = elogd_conf.max_size -
 		            stroll_min(store->size, elogd_conf.max_size);
@@ -330,13 +325,9 @@ elogd_store_write(struct elogd_store * __restrict store,
                   unsigned int                    count)
 {
 	elogd_assert_conf();
-	elogd_assert(store);
-	elogd_assert(store->dir >= 0);
-	elogd_assert(upath_validate_path_name(store->base) >
-	             (ssize_t)(elogd_conf.file_len + 1));
-	elogd_assert(store->base[elogd_conf.file_len] == '.');
-	elogd_assert(count);
+	elogd_store_assert(store);
 	elogd_assert(queue);
+	elogd_assert(count);
 	elogd_assert(count <= elogd_queue_busy_count(queue));
 
 	size_t maxsz;
@@ -455,11 +446,7 @@ void
 elogd_store_close(struct elogd_store * __restrict store)
 {
 	elogd_assert_conf();
-	elogd_assert(store);
-	elogd_assert(store->dir >= 0);
-	elogd_assert(upath_validate_path_name(store->base) >
-	             (ssize_t)(elogd_conf.file_len + 1));
-	elogd_assert(store->base[elogd_conf.file_len] == '.');
+	elogd_store_assert(store);
 
 	int err;
 
@@ -483,7 +470,9 @@ elogd_store_close(struct elogd_store * __restrict store)
 			           -err);
 	}
 
+#if defined(CONFIG_ELOGD_DEBUG)
 	free(store->base);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	err = udir_sync(store->dir);
 	if (err)

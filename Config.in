@@ -37,6 +37,12 @@ config ELOGD_STAT_PATH
 	help
 	  Pathname to file hosting elogd daemon internal state.
 
+config ELOGD_KMSG_PATH
+	string "Kernel ring-buffer device path"
+	default "/dev/kmsg"
+	help
+	  Pathname to the kernel (logging) ring-buffer character device file.
+
 config ELOGD_FETCH_MIN
 	int
 	default 1
@@ -96,7 +102,7 @@ config ELOGD_SVC_FETCH
 	  Number of syslog socket messages that elogd daemon will fetch in a
 	  single polling iteration.
 
-config ELOGD_INTERN_SEVERITY
+config ELOGD_INTLOG_SEVERITY
 	int "Internal logger severity"
 	range 0 7
 	default 4
@@ -105,7 +111,7 @@ config ELOGD_INTERN_SEVERITY
 	  be sent to internal logging queue.
 	  See syslog(3) levels for more informations about available severities.
 
-config ELOGD_INTERN_FETCH
+config ELOGD_INTLOG_FETCH
 	int "Number of internal eLogd message fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
 	default 32

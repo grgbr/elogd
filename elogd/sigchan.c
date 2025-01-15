@@ -10,6 +10,10 @@
 #include "sigchan.h"
 #include <utils/signal.h>
 
+#define elogd_sigchan_assert(_chan) \
+	elogd_assert(_chan); \
+	elogd_assert((_chan)->fd >= 0)
+
 static __elogd_nonull(1, 3)
 int
 elogd_sigchan_dispatch(struct upoll_worker * work,
@@ -31,7 +35,7 @@ elogd_sigchan_dispatch(struct upoll_worker * work,
 	int                          ret;
 
 	chan = containerof(work, struct elogd_sigchan, work);
-	elogd_assert(chan->fd >= 0);
+	elogd_sigchan_assert(chan);
 
 	ret = usig_read_fd(chan->fd, &info, 1);
 	elogd_assert(ret);
@@ -99,7 +103,9 @@ elogd_sigchan_open(struct elogd_sigchan * __restrict chan,
 	return 0;
 
 close:
+#if defined(CONFIG_ELOGD_DEBUG)
 	usig_close_fd(chan->fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
 	elogd_err("cannot initialize signaling: %s: %s (%d).\n",
 	          msg,
@@ -110,15 +116,16 @@ err:
 }
 
 void
-elogd_sigchan_close(const struct elogd_sigchan * __restrict chan,
-                    const struct upoll * __restrict         poll)
+elogd_sigchan_close(const struct elogd_sigchan * __restrict chan __unused,
+                    const struct upoll * __restrict         poll __unused)
 {
-	elogd_assert(chan);
-	elogd_assert(chan->fd >= 0);
+	elogd_sigchan_assert(chan);
 	elogd_assert(poll);
 
 	elogd_debug("unregistering signal handlers...\n");
 
+#if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, chan->fd);
 	usig_close_fd(chan->fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 }

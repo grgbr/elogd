@@ -8,7 +8,10 @@
 #ifndef _ELOGD_SIGCHAN_H
 #define _ELOGD_SIGCHAN_H
 
+#include "common.h"
 #include <utils/poll.h>
+
+struct upoll;
 
 struct elogd_sigchan {
 	struct upoll_worker work;

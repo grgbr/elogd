@@ -7,19 +7,17 @@
 
 #include "intern.h"
 #include "log.h"
-#include <utils/timer.h>
+#include <utils/time.h>
 
-static __elogd_nonull(1, 3) __elogd_nothrow
+static __elogd_nonull(2) __printf(2, 0)
 struct elogd_line *
-elogd_intern_create_line(struct elogd_intern * __restrict intern,
-                         enum elog_severity               severity,
-                         const char * __restrict          format,
-                         va_list                          args)
+elogd_intern_create_line(enum elog_severity      severity,
+                         const char * __restrict format,
+                         va_list                 args)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_pid > 0);
-	elogd_assert(intern);
 	elogd_assert(severity <= elogd_conf.intlog.severity);
+	elogd_assert(elogd_pid > 0);
 	elogd_assert(format);
 
 	struct elogd_line * line;
@@ -53,7 +51,7 @@ release:
 	return NULL;
 }
 
-static __elogd_nonull(1, 3) __printf(3, 0) __elogd_nothrow
+static __elogd_nonull(1, 3) __printf(3, 0)
 void
 elogd_intern_vlog(struct elog * __restrict logger,
                   enum elog_severity       severity,
@@ -79,17 +77,14 @@ elogd_intern_vlog(struct elog * __restrict logger,
 		if (!elogd_queue_full(&intern->queue)) {
 			struct elogd_line * line;
 
-			line = elogd_intern_create_line(intern,
-			                                severity,
-			                                format,
-			                                args);
+			line = elogd_intern_create_line(severity, format, args);
 			if (line)
 				elogd_nqueue(&intern->queue, line);
 		}
 	}
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 void
 elogd_intern_close(struct elog * __restrict logger)
 {
@@ -110,17 +105,27 @@ static const struct elog_ops elogd_intern_ops = {
 	.close = elogd_intern_close
 };
 
-void
-elogd_intern_init(struct elogd_intern * __restrict intern)
+struct elogd_intern *
+elogd_intern_create(void)
 {
 	elogd_assert_conf();
-	elogd_assert(intern);
+	elogd_assert(elogd_pid > 0);
+
+	struct elogd_intern * intern;
+
+	intern = malloc(sizeof(*intern));
+	if (!intern) {
+		errno = -ENOMEM;
+		return NULL;
+	}
 
 	elogd_early_debug("initializing internal queue...\n");
 
 	intern->elog.ops = &elogd_intern_ops;
 	intern->on = true;
-	elogd_queue_init(&intern->queue, elogd_conf.intern_fetch);
+	elogd_queue_init(&intern->queue, elogd_conf.intlog_fetch);
 
 	elogd_info("internal queue initialized.\n");
+
+	return intern;
 }

@@ -10,10 +10,20 @@
 
 #include "common.h"
 
-/* Internal message queue processor. */
+/*
+ * eLogd internal message source.
+ *
+ * Meant to process and queue internal eLogd messages.
+ */
 struct elogd_intern {
+	/*
+	 * Act as an elog object so that it may be included into a
+	 * `struct elog_multi' logging chain.
+	 */
 	struct elog        elog;
+	/* Wether we are stopped or not... */
 	bool               on;
+	/* Queue of internal eLogd messages. */
 	struct elogd_queue queue;
 };
 
@@ -46,8 +56,7 @@ elogd_intern_stop(struct elogd_intern * __restrict intern)
 	intern->on = false;
 }
 
-extern void
-elogd_intern_init(struct elogd_intern * __restrict intern)
-	__elogd_nonull(1) __leaf;
+extern struct elogd_intern *
+elogd_intern_create(void) __elogd_nothrow __leaf __warn_result;
 
 #endif /* _ELOGD_INTERN_H */
