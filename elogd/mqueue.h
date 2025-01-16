@@ -10,6 +10,8 @@
 
 #include "common.h"
 
+#if defined(CONFIG_ELOGD_MQUEUE)
+
 struct elogd_mqueue;
 struct elogd_pipe;
 struct upoll;
@@ -23,5 +25,7 @@ extern void
 elogd_mqueue_destroy(struct elogd_mqueue * __restrict mqueue,
                      const struct upoll * __restrict  poll)
 	__elogd_nonull(1, 2) __leaf;
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
 #endif /* _ELOGD_MQUEUE_H */

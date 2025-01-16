@@ -26,8 +26,9 @@ common-ldflags := $(filter-out -DNDEBUG,$(common-ldflags))
 endif # ($(filter y,$(CONFIG_ELOGD_ASSERT)),)
 
 bins           := elogd
-elogd-objs     := main.o pipe.o store.o mqueue.o svc.o kmsg.o log.o intern.o \
-                  sigchan.o common.o
+elogd-objs     := main.o pipe.o store.o svc.o kmsg.o log.o intern.o sigchan.o \
+                  common.o
+elogd-objs     += $(call kconf_enabled,ELOGD_MQUEUE,mqueue.o)
 elogd-cflags   := $(common-cflags) -idirafter $(SRCDIR)
 elogd-ldflags  := $(EXTRA_LDFLAGS)
 elogd-pkgconf  := libelog libenbox libutils libstroll

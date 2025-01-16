@@ -10,7 +10,49 @@
 
 #include "common.h"
 
-struct elogd_intern;
+#define elogd_early_err(_format, ...) \
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_ERR_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: {   err} " _format "\n", \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
+
+#define elogd_early_warn(_format, ...) \
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_WARNING_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: {  warn} " _format "\n", \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
+
+#define elogd_early_info(_format, ...) \
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_INFO_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: {  info} " _format "\n", \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
+
+#if defined(CONFIG_ELOGD_DEBUG)
+
+#define elogd_early_debug(_format, ...) \
+	{ \
+		if (elogd_conf.stdlog.super.severity >= ELOG_DEBUG_SEVERITY) \
+			fprintf(stderr, \
+			        "%s: { debug} " _format "\n", \
+			        program_invocation_short_name, \
+			        ## __VA_ARGS__); \
+	}
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+#define elogd_early_debug(_format, ...)
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 extern struct elog_multi elogd_logger;
 
@@ -36,6 +78,8 @@ extern struct elog_multi elogd_logger;
 #define elogd_debug(_format, ...)
 
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
+
+struct elogd_intern;
 
 extern struct elogd_intern *
 elogd_log_the_intern(void)

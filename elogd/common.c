@@ -17,6 +17,10 @@
 	elogd_assert((_tspec)->tv_nsec >= 0); \
 	elogd_assert((_tspec)->tv_nsec < 1000000000L)
 
+/******************************************************************************
+ * Global configuration
+ ******************************************************************************/
+
 struct elogd_config elogd_conf = {
 	.user            = compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
 	                                  NULL,
@@ -25,8 +29,10 @@ struct elogd_config elogd_conf = {
 	.stat_path       = CONFIG_ELOGD_STAT_PATH,
 	.kmsg_path       = CONFIG_ELOGD_KMSG_PATH,
 	.kmsg_fetch      = CONFIG_ELOGD_KMSG_FETCH,
+#if defined(CONFIG_ELOGD_MQUEUE)
 	.mqueue_name     = CONFIG_ELOGD_MQUEUE_NAME,
 	.mqueue_fetch    = CONFIG_ELOGD_MQUEUE_FETCH,
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 	.dir_path        = CONFIG_ELOGD_DIR_PATH,
 	.file_base       = CONFIG_ELOGD_FILE_BASE,
 	.file_len        = sizeof(CONFIG_ELOGD_FILE_BASE) - 1,
@@ -50,7 +56,7 @@ struct elogd_config elogd_conf = {
  * Various helpers.
  ******************************************************************************/
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 size_t
 elogd_fill_rfc3164_prio(char * __restrict head,
                         int               facility,
@@ -63,7 +69,7 @@ elogd_fill_rfc3164_prio(char * __restrict head,
 	return (size_t)sprintf(head, "<%d>", LOG_MAKEPRI(facility, severity));
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 size_t
 elogd_fill_rfc3339_time(char * __restrict                  string,
                         const struct timespec * __restrict tstamp)
@@ -141,7 +147,15 @@ STROLL_RESTORE_WARN
  * Logging output line handling.
  ******************************************************************************/
 
-static __elogd_nonull(1) __elogd_nothrow
+#define elogd_line_assert_head(_line, _iovec) \
+	elogd_assert((_iovec)[ELOGD_LINE_HEAD_IOVEC].iov_len <= \
+	             sizeof((_line)->head)); \
+	elogd_assert((char *)(_iovec)[ELOGD_LINE_HEAD_IOVEC].iov_base >= \
+	             (_line)->head); \
+	elogd_assert((char *)(_iovec)[ELOGD_LINE_HEAD_IOVEC].iov_base < \
+	             &(_line)->head[sizeof((_line)->head)])
+
+static __elogd_nonull(1)
 void
 elogd_line_reset(struct elogd_line * __restrict line)
 {
@@ -229,62 +243,18 @@ struct elogd_alloc {
 	unsigned int             nr;
 };
 
+#define elogd_alloc_assert() \
+	elogd_assert(elogd_the_alloc.lines); \
+	elogd_assert(elogd_the_alloc.nr)
+
 static struct elogd_alloc elogd_the_alloc;
 
-static __elogd_nothrow
-struct elogd_line *
-elogd_alloc_one(void)
-{
-	elogd_assert(elogd_the_alloc.lines);
-	elogd_assert(elogd_the_alloc.nr);
-
-	if (!stroll_dlist_empty(&elogd_the_alloc.free))
-		return elogd_line_from_node(
-			stroll_dlist_dqueue_front(&elogd_the_alloc.free));
-	else
-		return NULL;
-}
-
-struct elogd_line *
-elogd_line_create(void)
-{
-	struct elogd_line * line;
-
-	line = elogd_alloc_one();
-	if (line) {
-		elogd_line_reset(line);
-		return line;
-	}
-
-	return NULL;
-}
-
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1, 2)
 void
-elogd_alloc_free(struct elogd_line * __restrict line)
+elogd_line_destroy_bulk(struct stroll_dlist_node * first,
+                        struct stroll_dlist_node * last)
 {
-	elogd_assert(elogd_the_alloc.lines);
-	elogd_assert(elogd_the_alloc.nr);
-	elogd_assert(line);
-	elogd_assert(line >= elogd_the_alloc.lines);
-	elogd_assert(line < &elogd_the_alloc.lines[elogd_the_alloc.nr]);
-
-	stroll_dlist_nqueue_front(&elogd_the_alloc.free, &line->node);
-}
-
-void
-elogd_line_destroy(struct elogd_line * __restrict line)
-{
-	elogd_alloc_free(line);
-}
-
-static __elogd_nonull(1) __elogd_nothrow
-void
-elogd_alloc_free_bulk(struct stroll_dlist_node * first,
-                      struct stroll_dlist_node * last)
-{
-	elogd_assert(elogd_the_alloc.lines);
-	elogd_assert(elogd_the_alloc.nr);
+	elogd_alloc_assert();
 	elogd_assert(first);
 	elogd_assert(first != &elogd_the_alloc.free);
 	elogd_assert(last);
@@ -295,11 +265,33 @@ elogd_alloc_free_bulk(struct stroll_dlist_node * first,
 	                         last);
 }
 
-void
-elogd_line_destroy_bulk(struct stroll_dlist_node * first,
-                        struct stroll_dlist_node * last)
+struct elogd_line *
+elogd_line_create(void)
 {
-	elogd_alloc_free_bulk(first, last);
+	elogd_alloc_assert();
+
+	if (!stroll_dlist_empty(&elogd_the_alloc.free)) {
+		struct elogd_line * line;
+
+		line = elogd_line_from_node(
+			stroll_dlist_dqueue_front(&elogd_the_alloc.free));
+		elogd_line_reset(line);
+
+		return line;
+	}
+
+	return NULL;
+}
+
+void
+elogd_line_destroy(struct elogd_line * __restrict line)
+{
+	elogd_alloc_assert();
+	elogd_assert(line);
+	elogd_assert(line >= elogd_the_alloc.lines);
+	elogd_assert(line < &elogd_the_alloc.lines[elogd_the_alloc.nr]);
+
+	stroll_dlist_nqueue_front(&elogd_the_alloc.free, &line->node);
 }
 
 int
@@ -333,8 +325,7 @@ elogd_alloc_init(unsigned int nr)
 void
 elogd_alloc_fini(void)
 {
-	elogd_assert(elogd_the_alloc.lines);
-	elogd_assert(elogd_the_alloc.nr);
+	elogd_alloc_assert();
 
 	elogd_early_debug("terminating line allocator...");
 
@@ -358,7 +349,7 @@ elogd_queue_line_cmp(const struct stroll_dlist_node * __restrict first,
 
 #if defined(CONFIG_ELOGD_ASSERT)
 
-static __elogd_nonull(1) __elogd_pure __elogd_nothrow
+static __elogd_nonull(1) __elogd_pure
 bool
 elogd_check_sorted_lines(const struct stroll_dlist_node * __restrict lines,
                          unsigned int                                count)
@@ -393,7 +384,7 @@ elogd_check_sorted_lines(const struct stroll_dlist_node * __restrict lines,
 
 #else  /* !defined(CONFIG_ELOGD_ASSERT) */
 
-static inline __elogd_nonull(1) __elogd_const __elogd_nothrow
+static inline __elogd_nonull(1) __elogd_const
 bool
 elogd_check_sorted_lines(
 	const struct stroll_dlist_node * __restrict lines __unused,
@@ -405,13 +396,30 @@ elogd_check_sorted_lines(
 #endif /* defined(CONFIG_ELOGD_ASSERT) */
 
 void
+elogd_queue_move(struct elogd_queue * __restrict destination,
+                 struct elogd_queue * __restrict source)
+{
+	elogd_queue_assert(destination);
+	elogd_assert(!destination->cnt);
+	elogd_queue_assert(source);
+	elogd_assert(source->cnt);
+	elogd_assert(destination->nr >= source->nr);
+
+	destination->cnt = source->cnt;
+	stroll_dlist_embed_after(&destination->head,
+	                         stroll_dlist_next(&source->head),
+	                         stroll_dlist_prev(&source->head));
+
+	source->cnt = 0;
+	stroll_dlist_init(&source->head);
+}
+
+void
 elogd_nqueue_presort(struct elogd_queue * __restrict       queue,
                      struct stroll_dlist_node * __restrict presort,
                      unsigned int                          count)
 {
-	elogd_assert(queue);
-	elogd_assert(queue->nr);
-	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+	elogd_queue_assert(queue);
 	elogd_assert(count);
 	elogd_assert((queue->cnt + count) <= queue->nr);
 	elogd_assert(elogd_check_sorted_lines(presort, count));
@@ -429,50 +437,6 @@ elogd_nqueue_presort(struct elogd_queue * __restrict       queue,
 }
 
 void
-elogd_queue_release_bulk(struct elogd_queue * __restrict       queue,
-                         struct stroll_dlist_node * __restrict last,
-                         unsigned int                          count)
-{
-	elogd_assert(queue);
-	elogd_assert(queue->nr);
-	elogd_assert(queue->cnt);
-	elogd_assert(queue->cnt <= queue->nr);
-	elogd_assert(count);
-	elogd_assert(count <= queue->cnt);
-
-	struct stroll_dlist_node * first = stroll_dlist_next(&queue->head);
-
-	stroll_dlist_withdraw(first, last);
-	queue->cnt -= count;
-
-	elogd_line_destroy_bulk(first, last);
-}
-
-void
-elogd_queue_move(struct elogd_queue * __restrict destination,
-                 struct elogd_queue * __restrict source)
-{
-	elogd_assert(destination);
-	elogd_assert(!destination->cnt);
-	elogd_assert(destination->nr);
-	elogd_assert(stroll_dlist_empty(&destination->head));
-	elogd_assert(source);
-	elogd_assert(source->cnt);
-	elogd_assert(source->nr);
-	elogd_assert(source->cnt <= source->nr);
-	elogd_assert(!stroll_dlist_empty(&source->head));
-	elogd_assert(destination->nr >= source->nr);
-
-	destination->cnt = source->cnt;
-	stroll_dlist_embed_after(&destination->head,
-	                         stroll_dlist_next(&source->head),
-	                         stroll_dlist_prev(&source->head));
-
-	source->cnt = 0;
-	stroll_dlist_init(&source->head);
-}
-
-void
 elogd_queue_kwmerge(struct elogd_queue * queues[__restrict_arr],
                     unsigned int         count)
 {
@@ -484,11 +448,8 @@ elogd_queue_kwmerge(struct elogd_queue * queues[__restrict_arr],
 	struct stroll_dlist_node * heads[count];
 
 	for (q = 0, cnt = 0; q < count; q++) {
-		elogd_assert(queues[q]);
+		elogd_queue_assert(queues[q]);
 		elogd_assert(queues[q]->cnt);
-		elogd_assert(queues[q]->nr);
-		elogd_assert(queues[q]->cnt <= queues[q]->nr);
-		elogd_assert(!stroll_dlist_empty(&queues[q]->head));
 
 		cnt += queues[q]->cnt;
 		heads[q] = &queues[q]->head;
@@ -501,6 +462,25 @@ elogd_queue_kwmerge(struct elogd_queue * queues[__restrict_arr],
 		queues[q]->cnt = 0;
 		stroll_dlist_init(&queues[q]->head);
 	}
+}
+
+void
+elogd_queue_release_bulk(struct elogd_queue * __restrict       queue,
+                         struct stroll_dlist_node * __restrict last,
+                         unsigned int                          count)
+{
+	elogd_queue_assert(queue);
+	elogd_assert(last);
+	elogd_assert(last != &queue->head);
+	elogd_assert(count);
+	elogd_assert(count <= queue->cnt);
+
+	struct stroll_dlist_node * first = stroll_dlist_next(&queue->head);
+
+	stroll_dlist_withdraw(first, last);
+	queue->cnt -= count;
+
+	elogd_line_destroy_bulk(first, last);
 }
 
 void
@@ -517,10 +497,7 @@ elogd_queue_init(struct elogd_queue * __restrict queue, unsigned int nr)
 void
 elogd_queue_fini(const struct elogd_queue * __restrict queue __unused)
 {
-	elogd_assert(queue);
-	elogd_assert(queue->nr);
-	elogd_assert(queue->cnt <= queue->nr);
-	elogd_assert(!!queue->cnt ^ stroll_dlist_empty(&queue->head));
+	elogd_queue_assert(queue);
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	if (queue->cnt)

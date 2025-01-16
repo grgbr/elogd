@@ -11,10 +11,6 @@ rendered as \x09)
 
 * move to slist impl
 
-* review source: common.[ch] pipe.[ch] main.[ch]
-
 * stats ?
 
 * traces ?
-
-* Optional sources at build time ?

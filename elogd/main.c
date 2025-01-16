@@ -122,6 +122,8 @@ elogd_parse_fetch_count(const char * __restrict   arg,
 	return EXIT_SUCCESS;
 }
 
+#if defined(CONFIG_ELOGD_MQUEUE)
+
 static
 int
 elogd_parse_mqueue_name(const char * __restrict arg)
@@ -144,6 +146,8 @@ elogd_parse_mqueue_name(const char * __restrict arg)
 
 	return EXIT_SUCCESS;
 }
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
 static bool elogd_free_paths = false;
 
@@ -234,10 +238,14 @@ elogd_parse_log_path(const char * __restrict path)
 	return EXIT_SUCCESS;
 
 free_dir:
+#if defined(CONFIG_ELOGD_DEBUG)
 	free(dir);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 free_tmp:
+#if defined(CONFIG_ELOGD_DEBUG)
 	free(tmp);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	return EXIT_FAILURE;
 }
@@ -376,6 +384,19 @@ elogd_parse_delay(const char * __restrict   arg,
 #define USAGE_DEBUG_LEVEL
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 
+#if defined(CONFIG_ELOGD_MQUEUE)
+#define USAGE_MQUEUE \
+"    -n[NAME]              -- when NAME is specified, use NAME as shared message\n" \
+"    --mq-name[=NAME]         queue name, disable POSIX queue source otherwise\n" \
+"                             (defaults to `" CONFIG_ELOGD_MQUEUE_NAME "')\n" \
+"    -q|--mq-fetch COUNT   -- set maximum number of messages to fetch from\n" \
+"                             shared message queue to COUNT in a row with\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_MQUEUE_FETCH) ")\n"
+#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
+#define USAGE_MQUEUE
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
 #define USAGE \
 "Usage: %1$s [OPTIONS]\n" \
 "eLogd early system logging daemon.\n" \
@@ -409,13 +430,7 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             kernel ring-buffer to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_KMSG_FETCH) ")\n" \
-"    -n[NAME]              -- when NAME is specified, use NAME as shared message\n" \
-"    --mq-name[=NAME]         queue name, disable POSIX queue source otherwise\n" \
-"                             (defaults to `" CONFIG_ELOGD_MQUEUE_NAME "')\n" \
-"    -q|--mq-fetch COUNT   -- set maximum number of messages to fetch from\n" \
-"                             shared message queue to COUNT in a row with\n" \
-"                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
-"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_MQUEUE_FETCH) ")\n" \
+USAGE_MQUEUE \
 "    -p[PATH]              -- when PATH is specified, use PATH as pathname to\n" \
 "    --sock-path[=PATH]       syslog socket file, disable syslog service socket\n" \
 "                             otherwise\n" \
@@ -465,9 +480,12 @@ static
 int
 elogd_parse_cmdln(int argc, char * const argv[])
 {
-	struct elog_parse                   stdlog_parse;
-	struct elog_parse                   intlog_parse;
-	int                                 ret = EXIT_FAILURE;
+	elogd_assert(argc);
+	elogd_assert(argv);
+
+	struct elog_parse stdlog_parse;
+	struct elog_parse intlog_parse;
+	int               ret = EXIT_FAILURE;
 
 	elogd_log_init_parse(&stdlog_parse, &intlog_parse);
 
@@ -485,10 +503,14 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			{ "kern-fetch", required_argument, NULL, 'k' },
 			{ "lock-path",  required_argument, NULL, 'l' },
 			{ "log-mode",   required_argument, NULL, 'm' },
+#if defined(CONFIG_ELOGD_MQUEUE)
 			{ "mq-name",    optional_argument, NULL, 'n' },
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 			{ "log-path",   required_argument, NULL, 'o' },
 			{ "sock-path",  optional_argument, NULL, 'p' },
+#if defined(CONFIG_ELOGD_MQUEUE)
 			{ "mq-fetch",   required_argument, NULL, 'q' },
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 			{ "log-rotate", required_argument, NULL, 'r' },
 			{ "stat-path",  required_argument, NULL, 's' },
 			{ "user",       optional_argument, NULL, 'u' },
@@ -497,12 +519,20 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			{ NULL,         0,                 NULL, 0 }
 		};
 
-		opt = getopt_long(
-			argc,
-			argv,
-			":a::u::l:s:k:n::q:o:e::m:z:r:p::b::c:f:d:v::i::h",
-			opts,
-			NULL);
+		opt = getopt_long(argc,
+		                  argv,
+		                  ":"
+		                  "a::b::c:d:e::f:hi::k:l:m:"
+#if defined(CONFIG_ELOGD_MQUEUE)
+		                  "n::"
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+		                  "o:p::"
+#if defined(CONFIG_ELOGD_MQUEUE)
+		                  "q:"
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+		                  "r:s:u::v::z:",
+		                  opts,
+		                  NULL);
 		if (opt < 0)
 			break;
 
@@ -512,80 +542,6 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				optarg,
 				"kernel ring-buffer device file",
 				&elogd_conf.kmsg_path))
-				goto out;
-			break;
-
-		case 'u':
-			if (elogd_parse_user_name(optarg))
-				goto out;
-			break;
-
-		case 'l':
-			if (elogd_parse_path(optarg,
-			                     "lock file",
-			                     &elogd_conf.lock_path))
-				goto out;
-			break;
-
-		case 's':
-			if (elogd_parse_path(optarg,
-			                     "private status file",
-			                     &elogd_conf.stat_path))
-				goto out;
-			break;
-
-		case 'k':
-			if (elogd_parse_fetch_count(optarg,
-			                            "kernel ring-buffer",
-			                            &elogd_conf.kmsg_fetch))
-				goto out;
-			break;
-
-		case 'n':
-			if (elogd_parse_mqueue_name(optarg))
-				goto out;
-			break;
-
-		case 'q':
-			if (elogd_parse_fetch_count(optarg,
-			                            "message queue",
-			                            &elogd_conf.mqueue_fetch))
-				goto out;
-			break;
-
-		case 'o':
-			if (elogd_parse_log_path(optarg))
-				goto out;
-			break;
-
-		case 'e':
-			if (elogd_parse_group_name(optarg,
-			                           "output logging file",
-			                           &elogd_conf.file_group))
-				goto out;
-			break;
-
-		case 'm':
-			if (elogd_parse_mode(optarg,
-			                     "output logging file",
-			                     &elogd_conf.file_mode))
-				goto out;
-			break;
-
-		case 'z':
-			if (elogd_parse_log_size(optarg))
-				goto out;
-			break;
-
-		case 'r':
-			if (elogd_parse_log_rot(optarg))
-				goto out;
-			break;
-
-		case 'p':
-			if (elogd_parse_opt_path(optarg,
-			                         "syslog socket file",
-			                         &elogd_conf.sock_path))
 				goto out;
 			break;
 
@@ -603,6 +559,18 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
+		case 'd':
+			if (elogd_parse_delay(optarg, &elogd_conf.delay))
+				goto out;
+			break;
+
+		case 'e':
+			if (elogd_parse_group_name(optarg,
+			                           "output logging file",
+			                           &elogd_conf.file_group))
+				goto out;
+			break;
+
 		case 'f':
 			if (elogd_parse_fetch_count(optarg,
 			                            "syslog socket",
@@ -610,8 +578,78 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
-		case 'd':
-			if (elogd_parse_delay(optarg, &elogd_conf.delay))
+		case 'h':
+			ret = EX_USAGE;
+			goto usage;
+
+		case 'i':
+			if (elogd_log_parse_intern(&intlog_parse, optarg))
+				goto out;
+			break;
+
+		case 'k':
+			if (elogd_parse_fetch_count(optarg,
+			                            "kernel ring-buffer",
+			                            &elogd_conf.kmsg_fetch))
+				goto out;
+			break;
+
+		case 'l':
+			if (elogd_parse_path(optarg,
+			                     "lock file",
+			                     &elogd_conf.lock_path))
+				goto out;
+			break;
+
+		case 'm':
+			if (elogd_parse_mode(optarg,
+			                     "output logging file",
+			                     &elogd_conf.file_mode))
+				goto out;
+			break;
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+		case 'n':
+			if (elogd_parse_mqueue_name(optarg))
+				goto out;
+			break;
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+		case 'o':
+			if (elogd_parse_log_path(optarg))
+				goto out;
+			break;
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+		case 'q':
+			if (elogd_parse_fetch_count(optarg,
+			                            "message queue",
+			                            &elogd_conf.mqueue_fetch))
+				goto out;
+			break;
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+		case 'p':
+			if (elogd_parse_opt_path(optarg,
+			                         "syslog socket file",
+			                         &elogd_conf.sock_path))
+				goto out;
+			break;
+
+		case 'r':
+			if (elogd_parse_log_rot(optarg))
+				goto out;
+			break;
+
+		case 's':
+			if (elogd_parse_path(optarg,
+			                     "private status file",
+			                     &elogd_conf.stat_path))
+				goto out;
+			break;
+
+		case 'u':
+			if (elogd_parse_user_name(optarg))
 				goto out;
 			break;
 
@@ -620,14 +658,10 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
-		case 'i':
-			if (elogd_log_parse_intern(&intlog_parse, optarg))
+		case 'z':
+			if (elogd_parse_log_size(optarg))
 				goto out;
 			break;
-
-		case 'h':
-			ret = EX_USAGE;
-			goto usage;
 
 		case ':':
 			elogd_early_err("option '%s' requires an argument.\n",
@@ -651,7 +685,9 @@ elogd_parse_cmdln(int argc, char * const argv[])
 	}
 
 	if (!elogd_conf.kmsg_path &&
+#if defined(CONFIG_ELOGD_MQUEUE)
 	    !elogd_conf.mqueue_name &&
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 	    !elogd_conf.sock_path) {
 		elogd_early_err("invalid configuration: "
 		                "all message sources disabled.");
@@ -674,9 +710,34 @@ out:
 }
 
 static
+unsigned int
+elogd_fetch_nr(void)
+{
+	unsigned int nr = 0;
+
+	if (elogd_conf.kmsg_path)
+		nr += elogd_conf.kmsg_fetch;
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+	if (elogd_conf.mqueue_name)
+		nr += elogd_conf.mqueue_fetch;
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+	if (elogd_conf.sock_path)
+		nr += elogd_conf.svc_fetch;
+
+	if (elogd_conf.intlog.severity >= 0)
+		nr += elogd_conf.intlog_fetch;
+
+	return nr;
+}
+
+static
 void
 elogd_secure(void)
 {
+	elogd_assert_conf();
+	
 	int err;
 
 	umask(07077);
@@ -697,6 +758,9 @@ elogd_secure(void)
 			goto err;
 	}
 
+	elogd_uid = getuid();
+	elogd_gid = getgid();
+
 	return;
 
 err:
@@ -713,6 +777,8 @@ static
 int
 elogd_lock(void)
 {
+	elogd_assert_conf();
+
 	int          err;
 	const char * msg;
 
@@ -769,7 +835,7 @@ elogd_unlock(void)
 
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 
-static __elogd_nonull(1) __utils_nothrow
+static __elogd_nonull(1)
 int
 elogd_setup_loop(struct upoll * __restrict poll, unsigned int nr)
 {
@@ -789,10 +855,12 @@ elogd_setup_loop(struct upoll * __restrict poll, unsigned int nr)
 	return 0;
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 void
 elogd_stop(struct elogd_pipe * __restrict pipe)
 {
+	elogd_assert(pipe);
+
 	int ret;
 
 	elogd_notice("stop requested.");
@@ -807,10 +875,13 @@ elogd_stop(struct elogd_pipe * __restrict pipe)
 		elogd_info("stopped.");
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 int
 elogd_start(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 {
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
 	elogd_debug("starting...");
 
 	while (true) {
@@ -839,10 +910,13 @@ elogd_start(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 	unreachable();
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 void
 elogd_run(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 {
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
 	elogd_notice("ready.");
 
 	while (true) {
@@ -876,6 +950,9 @@ elogd_run(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 int
 main(int argc, char * const argv[])
 {
+	elogd_assert(argc);
+	elogd_assert(argv);
+
 	int                  ret;
 	struct upoll         poll;
 	struct elogd_sigchan sigs;
@@ -889,10 +966,7 @@ main(int argc, char * const argv[])
 		return (ret == EX_USAGE) ? EXIT_SUCCESS : ret;
 	ret = EXIT_FAILURE;
 
-	nr = 2 * (elogd_conf.kmsg_fetch +
-	          elogd_conf.mqueue_fetch +
-	          elogd_conf.svc_fetch +
-	          elogd_conf.intlog_fetch);
+	nr = 2 * elogd_fetch_nr();
 	if (elogd_alloc_init(nr))
 		goto out;
 
@@ -901,9 +975,6 @@ main(int argc, char * const argv[])
 	elogd_secure();
 	if (elogd_lock())
 		goto fini_log;
-
-	elogd_uid = getuid();
-	elogd_gid = getgid();
 
 	if (elogd_setup_loop(&poll, ELOGD_PIPE_POLL_NR + 1))
 		goto unlock;

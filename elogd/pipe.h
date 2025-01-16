@@ -8,12 +8,17 @@
 #ifndef _ELOGD_PIPE_H
 #define _ELOGD_PIPE_H
 
-#include "kmsg.h"
-#include "svc.h"
-#include "mqueue.h"
+#include "common.h"
 #include "store.h"
 
+struct elogd_kmsg;
+struct elogd_svc;
 struct elogd_intern;
+struct upoll;
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+struct elogd_mqueue;
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
 #define ELOGD_PIPE_POLL_NR (3U)
 
@@ -36,8 +41,10 @@ struct elogd_pipe {
 	struct elogd_kmsg *   kmsg;
 	/* Syslog socket based service pollable message source. */
 	struct elogd_svc *    svc;
+#if defined(CONFIG_ELOGD_MQUEUE)
 	/* POSIX message queue based service pollable message source. */
 	struct elogd_mqueue * mqueue;
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 	/* Internal message source. */
 	struct elogd_intern * intern;
 	/* Output message store. */
@@ -63,7 +70,7 @@ elogd_pipe_process_running(struct elogd_pipe * __restrict pipe)
 
 extern int
 elogd_pipe_stop(struct elogd_pipe * __restrict pipe)
-	__elogd_nonull(1) __elogd_nothrow __leaf;
+	__elogd_nonull(1) __elogd_nothrow;
 
 extern int
 elogd_pipe_open(struct elogd_pipe * __restrict  pipe,

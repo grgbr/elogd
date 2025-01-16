@@ -59,8 +59,16 @@ config ELOGD_KMSG_FETCH
 	  Number of kernel messages that elogd daemon will fetch in a single
 	  polling iteration.
 
+config ELOGD_MQUEUE
+	bool "POSIX message queue"
+	default y
+	help
+	  Enable support for fetching messages from POSIX named message queue.
+	  See mq_overview(7) for informations.
+
 config ELOGD_MQUEUE_NAME
 	string "Message queue service name"
+	depends on ELOGD_MQUEUE
 	default "/init"
 	help
 	  Name of POSIX message queue exposed service.
@@ -69,6 +77,7 @@ config ELOGD_MQUEUE_NAME
 config ELOGD_MQUEUE_FETCH
 	int "Number of message queue fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
+	depends on ELOGD_MQUEUE
 	default 32
 	help
 	  Number of message queue messages that elogd daemon will fetch in a
@@ -76,6 +85,7 @@ config ELOGD_MQUEUE_FETCH
 
 choice
 	prompt "Message queue reordering strategy"
+	depends on ELOGD_MQUEUE
 	default ELOGD_MQUEUE_REORDER_MERGE
 	help
 	  Strategy used to reorder messages retrieved from message queue in the

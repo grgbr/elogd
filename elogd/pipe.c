@@ -7,15 +7,36 @@
 
 #include "pipe.h"
 #include "log.h"
+#include "kmsg.h"
+#include "svc.h"
+#include "mqueue.h"
 #include "intern.h"
 #include <utils/time.h>
 
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+#define elogd_pipe_has_mqueue(_pipe) \
+	(!!((_pipe)->mqueue))
+
+#else /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+#define elogd_pipe_has_mqueue(_pipe) \
+	(0)
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+#define elogd_pipe_assert(_pipe) \
+	elogd_assert(_pipe); \
+	elogd_assert((_pipe)->kmsg || \
+	             (_pipe)->svc || \
+	             elogd_pipe_has_mqueue(_pipe))
+
 /* Reset active message queue tracking logic. */
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 void
 elogd_pipe_reset_alive(struct elogd_pipe * __restrict pipe)
 {
-	elogd_assert(pipe);
+	elogd_pipe_assert(pipe);
 
 	/* Reset count of active queues. */
 	pipe->cnt = 0;
@@ -41,11 +62,11 @@ elogd_pipe_reset_alive(struct elogd_pipe * __restrict pipe)
  * All active queues already contain messages (pre)sorted according to time
  * ordering.
  */
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 void
 elogd_pipe_merge_queues(struct elogd_pipe * __restrict pipe)
 {
-	elogd_assert(pipe);
+	elogd_pipe_assert(pipe);
 	elogd_assert(pipe->cnt);
 	elogd_assert(pipe->alive[0]);
 
@@ -72,7 +93,7 @@ elogd_pipe_merge_queues(struct elogd_pipe * __restrict pipe)
 	}
 }
 
-static __elogd_nonull(1, 2) __elogd_nothrow
+static __elogd_nonull(1, 2)
 void
 elogd_realtime_offset(struct timespec * __restrict real,
                       struct timespec * __restrict boot)
@@ -80,9 +101,14 @@ elogd_realtime_offset(struct timespec * __restrict real,
 	elogd_assert(real);
 	elogd_assert(boot);
 
-	utime_realtime_now(real);
 	utime_boot_now(boot);
+	utime_realtime_now(real);
 
+	int ret __unused;
+
+	ret = utime_tspec_sub(real, boot);
+	elogd_assert(ret >= 0);
+#if 0
 	if (utime_tspec_after(real, boot)) {
 		int ret __unused;
 
@@ -93,13 +119,14 @@ elogd_realtime_offset(struct timespec * __restrict real,
 		real->tv_sec = 0;
 		real->tv_nsec = 0;
 	}
+#endif
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 void
 elogd_pipe_flush_outq(struct elogd_pipe * __restrict pipe)
 {
-	elogd_assert(pipe);
+	elogd_pipe_assert(pipe);
 
 	struct stroll_dlist_node * node;
 	struct timespec            real;
@@ -111,11 +138,11 @@ elogd_pipe_flush_outq(struct elogd_pipe * __restrict pipe)
 		elogd_line_fill_rfc3164(elogd_line_from_node(node), &real);
 }
 
-static __elogd_nonull(1) __elogd_nothrow
+static __elogd_nonull(1)
 unsigned int
 elogd_pipe_fulfill_outq(struct elogd_pipe * __restrict pipe)
 {
-	elogd_assert(pipe);
+	elogd_pipe_assert(pipe);
 
 	unsigned int cnt = 0;
 
@@ -160,7 +187,8 @@ void
 elogd_pipe_on_alive(struct elogd_pipe * __restrict  pipe,
                     struct elogd_queue * __restrict queue)
 {
-	elogd_assert(pipe);
+	elogd_pipe_assert(pipe);
+	elogd_assert(queue);
 
 	pipe->alive[pipe->cnt++] = queue;
 }
@@ -168,6 +196,8 @@ elogd_pipe_on_alive(struct elogd_pipe * __restrict  pipe,
 bool
 elogd_pipe_process_starting(struct elogd_pipe * __restrict pipe)
 {
+	elogd_pipe_assert(pipe);
+
 	bool started = false;
 
 	if (pipe->cnt)
@@ -194,6 +224,8 @@ elogd_pipe_process_starting(struct elogd_pipe * __restrict pipe)
 int
 elogd_pipe_process_timeout(const struct elogd_pipe * __restrict pipe)
 {
+	elogd_pipe_assert(pipe);
+
 	if (elogd_queue_empty(&pipe->outq))
 		/* Tell caller to wait forever... */
 		return -1;
@@ -223,6 +255,8 @@ elogd_pipe_process_timeout(const struct elogd_pipe * __restrict pipe)
 void
 elogd_pipe_process_running(struct elogd_pipe * __restrict pipe)
 {
+	elogd_pipe_assert(pipe);
+
 	if (pipe->cnt) {
 		unsigned int cnt;
 
@@ -239,6 +273,8 @@ elogd_pipe_process_running(struct elogd_pipe * __restrict pipe)
 int
 elogd_pipe_stop(struct elogd_pipe * __restrict pipe)
 {
+	elogd_pipe_assert(pipe);
+
 	int ret = 0;
 
 	elogd_pipe_reset_alive(pipe);
@@ -264,6 +300,63 @@ elogd_pipe_stop(struct elogd_pipe * __restrict pipe)
 
 	return ret;
 }
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+static __elogd_nonull(1)
+int
+elogd_pipe_create_mqueue(struct elogd_pipe * __restrict  pipe,
+                         const struct upoll * __restrict poll)
+{
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
+	if (elogd_conf.mqueue_name) {
+		pipe->mqueue = elogd_mqueue_create(pipe, poll);
+		if (!pipe->mqueue)
+			return -errno;
+	}
+	else
+		pipe->mqueue = NULL;
+
+	return 0;
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_pipe_destroy_mqueue(struct elogd_pipe * __restrict  pipe,
+                          const struct upoll * __restrict poll)
+{
+	elogd_pipe_assert(pipe);
+	elogd_assert(poll);
+
+	if (pipe->mqueue)
+		elogd_mqueue_destroy(pipe->mqueue, poll);
+}
+
+#else /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+static inline __elogd_nonull(1)
+int
+elogd_pipe_create_mqueue(struct elogd_pipe * __restrict  pipe __unused,
+                         const struct upoll * __restrict poll __unused)
+{
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
+	return 0;
+}
+
+static inline __elogd_nonull(1, 2)
+void
+elogd_pipe_destroy_mqueue(struct elogd_pipe * __restrict  pipe __unused,
+                          const struct upoll * __restrict poll __unused)
+{
+	elogd_pipe_assert(pipe);
+	elogd_assert(poll);
+}
+
+#endif
 
 int
 elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
@@ -309,15 +402,9 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 	else
 		pipe->kmsg = NULL;
 
-	if (elogd_conf.mqueue_name) {
-		pipe->mqueue = elogd_mqueue_create(pipe, poll);
-		if (!pipe->mqueue) {
-			err = -errno;
-			goto destroy_kmsg;
-		}
-	}
-	else
-		pipe->mqueue = NULL;
+	err = elogd_pipe_create_mqueue(pipe, poll);
+	if (err)
+		goto destroy_kmsg;
 
 	err = elogd_store_open(&pipe->store);
 	if (err)
@@ -337,8 +424,7 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 	return 0;
 
 destroy_mqueue:
-	if (pipe->mqueue)
-		elogd_mqueue_destroy(pipe->mqueue, poll);
+	elogd_pipe_destroy_mqueue(pipe, poll);
 destroy_kmsg:
 	if (pipe->kmsg)
 		elogd_kmsg_destroy(pipe->kmsg, poll);
@@ -355,12 +441,14 @@ void
 elogd_pipe_close(struct elogd_pipe * __restrict  pipe,
                  const struct upoll * __restrict poll)
 {
+	elogd_pipe_assert(pipe);
+	elogd_assert(poll);
+
 	elogd_debug("closing pipeline...");
 
 	elogd_store_close(&pipe->store);
 
-	if (pipe->mqueue)
-		elogd_mqueue_destroy(pipe->mqueue, poll);
+	elogd_pipe_destroy_mqueue(pipe, poll);
 	if (pipe->kmsg)
 		elogd_kmsg_destroy(pipe->kmsg, poll);
 	if (pipe->svc)
