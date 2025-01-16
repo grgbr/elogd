@@ -310,7 +310,7 @@ elogd_alloc_init(unsigned int nr)
 	unsigned int        l;
 	struct elogd_line * lines;
 
-	elogd_early_debug("initializing line allocator...\n");
+	elogd_early_debug("initializing line allocator...");
 
 	lines = malloc(nr * sizeof(lines[0]));
 	if (!lines)
@@ -323,7 +323,7 @@ elogd_alloc_init(unsigned int nr)
 	elogd_the_alloc.nr = nr;
 
 	elogd_early_info("line allocator initialized "
-	                 "with %u lines of %u bytes each.\n",
+	                 "with %u lines of %u bytes each.",
 	                 nr,
 	                 ELOGD_LINE_MAX_LEN);
 
@@ -336,7 +336,7 @@ elogd_alloc_fini(void)
 	elogd_assert(elogd_the_alloc.lines);
 	elogd_assert(elogd_the_alloc.nr);
 
-	elogd_early_debug("terminating line allocator...\n");
+	elogd_early_debug("terminating line allocator...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	free(elogd_the_alloc.lines);

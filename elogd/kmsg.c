@@ -99,7 +99,7 @@ elogd_kmsg_read(const struct elogd_kmsg * __restrict kmsg,
 	else if (!ret || (ret == -EAGAIN))
 		return -EAGAIN;
 
-	elogd_warn("kernel ring-buffer read failed: %s (%d).\n",
+	elogd_warn("kernel ring-buffer read failed: %s (%d).",
 	           strerror((int)-ret),
 	           (int)-ret);
 
@@ -263,7 +263,7 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 
 	if (isspace(*data))
 		/* Skip empty and continuation lines. */
-		return -EINVAL;
+		return -ENODATA;
 
 	/* Parse priority tag. */
 	data = elogd_kmsg_parse_prio(line, data);
@@ -288,7 +288,7 @@ elogd_kmsg_parse(struct elogd_line * __restrict line,
 	/* Parse and skip empty message body. */
 	end = elogd_skip_field(data, '\n', (size_t)(end - data));
 	if (!end)
-		return -EINVAL;
+		return -ENODATA;
 
 	line->tag_len = sizeof("kernel") - 1;
 	line->tag = "kernel";
@@ -306,7 +306,7 @@ STROLL_RESTORE_WARN
 	return 0;
 
 err:
-	elogd_warn("kernel ring-buffer parsing failed: unexpected message.\n");
+	elogd_warn("kernel ring-buffer parsing failed: unexpected message.");
 
 	return -EINVAL;
 }
@@ -419,7 +419,7 @@ elogd_kmsg_skip(struct elogd_kmsg * __restrict kmsg)
 			break;
 
 		ret = elogd_kmsg_parse(line, &seqno);
-		if (ret)
+		if (ret && (ret != -ENODATA))
 			break;
 	} while (seqno <= *kmsg->seqno);
 
@@ -518,7 +518,7 @@ elogd_kmsg_open_stat(struct elogd_kmsg * __restrict kmsg)
 close:
 	ufile_close(fd);
 err:
-	elogd_err("'%s': %s: %s (%d).\n",
+	elogd_err("'%s': %s: %s (%d).",
 	          elogd_conf.stat_path,
 	          msg,
 	          strerror(-err),
@@ -543,7 +543,7 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
 	int          err;
 	const char * msg;
 
-	elogd_debug("initializing kernel ring-buffer...\n");
+	elogd_debug("initializing kernel ring-buffer...");
 
 	/*
 	 * This will require CAP_SYSLOG or CAP_SYS_ADMIN capability if kernel is
@@ -593,7 +593,7 @@ elogd_kmsg_open(struct elogd_kmsg * __restrict  kmsg,
 	if (elogd_queue_busy_count(&kmsg->queue))
 		elogd_pipe_on_alive(pipe, &kmsg->queue);
 
-	elogd_info("kernel ring-buffer initialized.\n");
+	elogd_info("kernel ring-buffer initialized.");
 
 	return 0;
 
@@ -607,7 +607,7 @@ close_dev:
 	ufd_close(fd);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
-	elogd_err("cannot initialize kernel ring-buffer: %s: %s (%d).\n",
+	elogd_err("cannot initialize kernel ring-buffer: %s: %s (%d).",
 	          msg,
 	          strerror(-err),
 	          -err);
@@ -625,7 +625,7 @@ elogd_kmsg_close(const struct elogd_kmsg * __restrict kmsg,
 	elogd_kmsg_assert(kmsg);
 	elogd_assert(poll);
 
-	elogd_debug("closing kernel ring-buffer...\n");
+	elogd_debug("closing kernel ring-buffer...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, kmsg->dev_fd);

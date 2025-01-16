@@ -44,7 +44,7 @@
 	{ \
 		if (elogd_conf.stdlog.super.severity >= ELOG_ERR_SEVERITY) \
 			fprintf(stderr, \
-			        "%s: {   err} " _format, \
+			        "%s: {   err} " _format "\n", \
 			        program_invocation_short_name, \
 			        ## __VA_ARGS__); \
 	}
@@ -53,7 +53,7 @@
 	{ \
 		if (elogd_conf.stdlog.super.severity >= ELOG_WARNING_SEVERITY) \
 			fprintf(stderr, \
-			        "%s: {  warn} " _format, \
+			        "%s: {  warn} " _format "\n", \
 			        program_invocation_short_name, \
 			        ## __VA_ARGS__); \
 	}
@@ -62,7 +62,7 @@
 	{ \
 		if (elogd_conf.stdlog.super.severity >= ELOG_INFO_SEVERITY) \
 			fprintf(stderr, \
-			        "%s: {  info} " _format, \
+			        "%s: {  info} " _format "\n", \
 			        program_invocation_short_name, \
 			        ## __VA_ARGS__); \
 	}
@@ -73,7 +73,7 @@
 	{ \
 		if (elogd_conf.stdlog.super.severity >= ELOG_DEBUG_SEVERITY) \
 			fprintf(stderr, \
-			        "%s: { debug} " _format, \
+			        "%s: { debug} " _format "\n", \
 			        program_invocation_short_name, \
 			        ## __VA_ARGS__); \
 	}

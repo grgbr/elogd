@@ -36,7 +36,7 @@ elogd_parse_user_name(const char * __restrict name)
 		ret = upwd_validate_user_name(name);
 		elogd_assert(ret);
 		if (ret < 0) {
-			elogd_early_err("invalid daemon user name: %s (%d).\n",
+			elogd_early_err("invalid daemon user name: %s (%d).",
 			                strerror((int)-ret),
 			                (int)-ret);
 			return EXIT_FAILURE;
@@ -64,7 +64,7 @@ elogd_parse_path(const char * __restrict  arg,
 
 	ret = upath_validate_path_name(arg);
 	if (ret < 0) {
-		elogd_early_err("invalid %s pathname: %s (%d).\n",
+		elogd_early_err("invalid %s pathname: %s (%d).",
 		                kind,
 		                strerror((int)-ret),
 		                (int)-ret);
@@ -112,7 +112,7 @@ elogd_parse_fetch_count(const char * __restrict   arg,
 	                            ELOGD_FETCH_MIN,
 	                            ELOGD_FETCH_MAX);
 	if (err) {
-		elogd_early_err("invalid %s fetch count: %s (%d).\n",
+		elogd_early_err("invalid %s fetch count: %s (%d).",
 		                kind,
 		                strerror(-err),
 		                -err);
@@ -131,7 +131,7 @@ elogd_parse_mqueue_name(const char * __restrict arg)
 
 		ret = umq_validate_name(arg);
 		if (ret < 0) {
-			elogd_early_err("invalid message queue name: %s (%d).\n",
+			elogd_early_err("invalid message queue name: %s (%d).",
 			                strerror((int)-ret),
 			                (int)-ret);
 			return EXIT_FAILURE;
@@ -180,7 +180,7 @@ elogd_parse_log_path(const char * __restrict path)
 
 	ret = upath_validate_path_name(path);
 	if (ret < 0) {
-		elogd_early_err("invalid output logging pathname: %s (%d).\n",
+		elogd_early_err("invalid output logging pathname: %s (%d).",
 		                strerror((int)-ret),
 		                (int)-ret);
 		return EXIT_FAILURE;
@@ -215,7 +215,7 @@ elogd_parse_log_path(const char * __restrict path)
 	elogd_assert(ret <= NAME_MAX);
 	if (!ret) {
 		elogd_early_err("invalid output logging pathname: "
-		                "empty basename.\n");
+		                "empty basename.");
 		goto free_dir;
 	}
 	elogd_assert(!((base[0] == '.') && (base[1] == '\0')));
@@ -256,7 +256,7 @@ elogd_parse_group_name(const char * __restrict  arg,
 
 		ret = upwd_validate_group_name(arg);
 		if (ret < 0) {
-			elogd_early_err("invalid %s group name: %s (%d).\n",
+			elogd_early_err("invalid %s group name: %s (%d).",
 			                kind,
 			                strerror((int)-ret),
 			                (int)-ret);
@@ -285,7 +285,7 @@ elogd_parse_log_size(const char * __restrict size)
 	                            ELOGD_FILE_SIZE_MIN,
 	                            ELOGD_FILE_SIZE_MAX);
 	if (err) {
-		elogd_early_err("invalid output logging file size: %s (%d).\n",
+		elogd_early_err("invalid output logging file size: %s (%d).",
 		                strerror(-err),
 		                -err);
 		return EXIT_FAILURE;
@@ -310,7 +310,7 @@ elogd_parse_log_rot(const char * __restrict count)
 	                            ELOGD_FILE_ROT_MAX);
 	if (err) {
 		elogd_early_err("invalid output logging file rotation count: "
-		                "%s (%d).\n",
+		                "%s (%d).",
 		                strerror(-err),
 		                -err);
 		return EXIT_FAILURE;
@@ -334,7 +334,7 @@ elogd_parse_mode(const char * __restrict arg,
 
 	err = upath_parse_mode(arg, &bits);
 	if (err) {
-		elogd_early_err("invalid %s mode bits: %s (%d).\n",
+		elogd_early_err("invalid %s mode bits: %s (%d).",
 		                kind,
 		                strerror(-err),
 		                -err);
@@ -361,7 +361,7 @@ elogd_parse_delay(const char * __restrict   arg,
 	                            ELOGD_DELAY_MIN,
 	                            ELOGD_DELAY_MAX);
 	if (err) {
-		elogd_early_err("invalid delay: %s (%d).\n",
+		elogd_early_err("invalid delay: %s (%d).",
 		                strerror(-err),
 		                -err);
 		return EXIT_FAILURE;
@@ -630,23 +630,23 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			goto usage;
 
 		case ':':
-			elogd_early_err("option '%s' requires an argument.\n\n",
+			elogd_early_err("option '%s' requires an argument.\n",
 			                argv[optind - 1]);
 			goto usage;
 
 		case '?':
-			elogd_early_err("unrecognized option '%s'.\n\n",
+			elogd_early_err("unrecognized option '%s'.\n",
 			                argv[optind - 1]);
 			goto usage;
 
 		default:
-			elogd_early_err("unexpected option parsing error.\n\n");
+			elogd_early_err("unexpected option parsing error.\n");
 			goto usage;
 		}
 	}
 
 	if (argc - optind) {
-		elogd_early_err("invalid number of arguments.\n\n");
+		elogd_early_err("invalid number of arguments.\n");
 		goto usage;
 	}
 
@@ -654,7 +654,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 	    !elogd_conf.mqueue_name &&
 	    !elogd_conf.sock_path) {
 		elogd_early_err("invalid configuration: "
-		                "all message sources disabled.\n");
+		                "all message sources disabled.");
 		goto out;
 	}
 
@@ -700,7 +700,7 @@ elogd_secure(void)
 	return;
 
 err:
-	elogd_err("cannot enable secure operations: %s (%d).\n",
+	elogd_err("cannot enable secure operations: %s (%d).",
 	          strerror(-err),
 	          -err);
 
@@ -738,7 +738,7 @@ close:
 	ufile_close(elogd_lock_fd);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
-	elogd_err("cannot acquire lock file: '%s': %s: %s (%d).\n",
+	elogd_err("cannot acquire lock file: '%s': %s: %s (%d).",
 	          elogd_conf.lock_path,
 	          msg,
 	          strerror(-err),
@@ -780,7 +780,7 @@ elogd_setup_loop(struct upoll * __restrict poll, unsigned int nr)
 
 	err = upoll_open(poll, nr);
 	if (err) {
-		elogd_err("cannot initialize polling: %s (%d).\n",
+		elogd_err("cannot initialize polling: %s (%d).",
 		          strerror(-err),
 		          -err);
 		return err;
@@ -795,23 +795,23 @@ elogd_stop(struct elogd_pipe * __restrict pipe)
 {
 	int ret;
 
-	elogd_notice("stop requested.\n");
+	elogd_notice("stop requested.");
 
 	ret = elogd_pipe_stop(pipe);
 
 	if (ret)
-		elogd_err("stopping failed: %s (%d).\n",
+		elogd_err("stopping failed: %s (%d).",
 		          strerror(-ret),
 		          -ret);
 	else
-		elogd_info("stopped.\n");
+		elogd_info("stopped.");
 }
 
 static __elogd_nonull(1, 2) __elogd_nothrow
 int
 elogd_start(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 {
-	elogd_debug("starting...\n");
+	elogd_debug("starting...");
 
 	while (true) {
 		switch (upoll_process(poll, 0)) {
@@ -843,7 +843,7 @@ static __elogd_nonull(1, 2) __elogd_nothrow
 void
 elogd_run(struct elogd_pipe * __restrict pipe, struct upoll * __restrict poll)
 {
-	elogd_notice("ready.\n");
+	elogd_notice("ready.");
 
 	while (true) {
 		int tmout;

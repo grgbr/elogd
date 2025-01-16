@@ -67,7 +67,7 @@ elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
 
 	elogd_assert(ret >= 0);
 	if ((size_t)ret < ELOG_MQUEUE_MIN_LEN) {
-		elogd_warn("message queue read failed: message too small.\n");
+		elogd_warn("message queue read failed: message too small.");
 		return -EINVAL;
 	}
 
@@ -91,8 +91,7 @@ elogd_mqueue_parse(struct elogd_line * __restrict line)
 
 	blen = elog_parse_mqueue_msg(head, vec->iov_len);
 	if (blen < 0) {
-		elogd_warn("message queue parsing failed: "
-		           "unexpected message.\n");
+		elogd_warn("message queue parsing failed: unexpected message.");
 		return (int)blen;
 	}
 
@@ -255,7 +254,7 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
 	struct mq_attr attr;
 	struct stat    st;
 
-	elogd_debug("initializing '%s' message queue...\n",
+	elogd_debug("initializing '%s' message queue...",
 	            elogd_conf.mqueue_name);
 
 	fd = umq_open(elogd_conf.mqueue_name,
@@ -297,7 +296,7 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
 	mqueue->pipe = pipe;
 	mqueue->fd = fd;
 
-	elogd_info("'%s' message queue initialized.\n",
+	elogd_info("'%s' message queue initialized.",
 	           elogd_conf.mqueue_name);
 
 	return 0;
@@ -307,7 +306,7 @@ close:
 	umq_close(fd);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
-	elogd_err("cannot initialize message queue: '%s': %s: %s (%d).\n",
+	elogd_err("cannot initialize message queue: '%s': %s: %s (%d).",
 	          elogd_conf.mqueue_name,
 	          msg,
 	          strerror(-err),
@@ -326,7 +325,7 @@ elogd_mqueue_close(const struct elogd_mqueue * __restrict mqueue,
 	elogd_mqueue_assert(mqueue);
 	elogd_assert(poll);
 
-	elogd_debug("closing message queue...\n");
+	elogd_debug("closing message queue...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, mqueue->fd);

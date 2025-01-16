@@ -73,7 +73,7 @@ elogd_sigchan_open(struct elogd_sigchan * __restrict chan,
 	int          err;
 	const char * msg;
 
-	elogd_debug("registering signal handlers...\n");
+	elogd_debug("registering signal handlers...");
 
 	usig_addset(&msk, SIGHUP);
 	usig_addset(&msk, SIGINT);
@@ -98,7 +98,7 @@ elogd_sigchan_open(struct elogd_sigchan * __restrict chan,
 
 	usig_procmask(SIG_SETMASK, usig_full_msk, NULL);
 
-	elogd_debug("signal handlers registered.\n");
+	elogd_debug("signal handlers registered.");
 
 	return 0;
 
@@ -107,7 +107,7 @@ close:
 	usig_close_fd(chan->fd);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
-	elogd_err("cannot initialize signaling: %s: %s (%d).\n",
+	elogd_err("cannot initialize signaling: %s: %s (%d).",
 	          msg,
 	          strerror(-err),
 	          -err);
@@ -122,7 +122,7 @@ elogd_sigchan_close(const struct elogd_sigchan * __restrict chan __unused,
 	elogd_sigchan_assert(chan);
 	elogd_assert(poll);
 
-	elogd_debug("unregistering signal handlers...\n");
+	elogd_debug("unregistering signal handlers...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, chan->fd);

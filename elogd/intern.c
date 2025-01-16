@@ -30,8 +30,9 @@ elogd_intern_create_line(enum elog_severity      severity,
 	ret = vsnprintf(line->data, sizeof(line->data), format, args);
 	if (ret <= 0)
 		goto release;
-	ret = (int)stroll_min((size_t)ret, sizeof(line->data) - 1);
-	line->data[ret - 1] = '\n';
+	ret = (int)stroll_min((size_t)ret, sizeof(line->data) - 2);
+	line->data[ret++] = '\n';
+	line->data[ret] = '\0';
 
 	utime_boot_now(&line->tstamp);
 	line->facility = LOG_SYSLOG;
@@ -95,7 +96,7 @@ elogd_intern_close(struct elog * __restrict logger)
 	const struct elogd_intern * intern = (const struct elogd_intern *)
 	                                     logger;
 
-	elogd_early_debug("closing internal queue...\n");
+	elogd_early_debug("closing internal queue...");
 
 	elogd_queue_fini(&intern->queue);
 }
@@ -119,13 +120,13 @@ elogd_intern_create(void)
 		return NULL;
 	}
 
-	elogd_early_debug("initializing internal queue...\n");
+	elogd_early_debug("initializing internal queue...");
 
 	intern->elog.ops = &elogd_intern_ops;
 	intern->on = true;
 	elogd_queue_init(&intern->queue, elogd_conf.intlog_fetch);
 
-	elogd_info("internal queue initialized.\n");
+	elogd_info("internal queue initialized.");
 
 	return intern;
 }

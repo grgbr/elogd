@@ -38,13 +38,13 @@ elogd_log_parse_std(struct elog_parse * __restrict parse,
 
 	if (arg) {
 		if (elog_parse_stdio_severity(parse, &elogd_conf.stdlog, arg)) {
-			elogd_early_err("%s.\n", parse->error);
+			elogd_early_err("%s.", parse->error);
 			return EXIT_FAILURE;
 		}
 
 #if !defined(CONFIG_ELOGD_DEBUG)
 		if (elogd_conf.stdlog.super.severity >= ELOG_DEBUG_SEVERITY) {
-			elogd_early_err("unexpected stdio log severity.\n");
+			elogd_early_err("unexpected stdio log severity.");
 			return EXIT_FAILURE;
 		}
 #endif /* !defined(CONFIG_ELOGD_DEBUG) */
@@ -65,13 +65,13 @@ elogd_log_parse_intern(struct elog_parse * __restrict parse,
 
 	if (arg) {
 		if (elog_parse_severity(parse, &elogd_conf.intlog, arg)) {
-			elogd_early_err("%s.\n", parse->error);
+			elogd_early_err("%s.", parse->error);
 			return EXIT_FAILURE;
 		}
 
 #if !defined(CONFIG_ELOGD_DEBUG)
 		if (elogd_conf.intlog.severity >= ELOG_DEBUG_SEVERITY) {
-			elogd_early_err("unexpected internal log severity.\n");
+			elogd_early_err("unexpected internal log severity.");
 			return EXIT_FAILURE;
 		}
 #endif /* !defined(CONFIG_ELOGD_DEBUG) */

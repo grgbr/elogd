@@ -332,7 +332,7 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 		elogd_pipe_reset_alive(pipe);
 	}
 
-	elogd_debug("pipeline initialized.\n");
+	elogd_debug("pipeline initialized.");
 
 	return 0;
 
@@ -355,7 +355,7 @@ void
 elogd_pipe_close(struct elogd_pipe * __restrict  pipe,
                  const struct upoll * __restrict poll)
 {
-	elogd_debug("closing pipeline...\n");
+	elogd_debug("closing pipeline...");
 
 	elogd_store_close(&pipe->store);
 

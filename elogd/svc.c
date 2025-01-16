@@ -115,7 +115,7 @@ STROLL_RESTORE_WARN
 
 	if (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))
 		elogd_warn("syslog service read failed: "
-		           "unxpected truncated message.\n");
+		           "unxpected truncated message.");
 
 	return 0;
 }
@@ -285,7 +285,7 @@ STROLL_RESTORE_WARN
 	return 0;
 
 err:
-	elogd_warn("syslog service parsing failed: unexpected message.\n");
+	elogd_warn("syslog service parsing failed: unexpected message.");
 
 	return -EINVAL;
 }
@@ -408,7 +408,7 @@ elogd_svc_open(struct elogd_svc * __restrict   svc,
 	mode_t       msk;
 	gid_t        gid = elogd_gid;
 
-	elogd_debug("initializing '%s' syslog service...\n",
+	elogd_debug("initializing '%s' syslog service...",
 	            elogd_conf.sock_path);
 
 	err = unsk_dgram_svc_open(&svc->unsk, SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -429,7 +429,7 @@ elogd_svc_open(struct elogd_svc * __restrict   svc,
 		err = upwd_get_gid_byname(elogd_conf.svc_group, &gid);
 		if (err)
 			elogd_warn("'%s': unknown logging socket group, "
-			           "using default GID %d.\n",
+			           "using default GID %d.",
 			           elogd_conf.svc_group,
 			           gid);
 	}
@@ -450,8 +450,7 @@ elogd_svc_open(struct elogd_svc * __restrict   svc,
 	elogd_queue_init(&svc->queue, elogd_conf.svc_fetch);
 	svc->pipe = pipe;
 
-	elogd_info("'%s' syslog service initialized.\n",
-	           elogd_conf.sock_path);
+	elogd_info("'%s' syslog service initialized.", elogd_conf.sock_path);
 
 	return 0;
 
@@ -460,7 +459,7 @@ close:
 	unsk_svc_close(&svc->unsk);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
-	elogd_err("cannot initialize syslog service: '%s': %s: %s (%d).\n",
+	elogd_err("cannot initialize syslog service: '%s': %s: %s (%d).",
 	          elogd_conf.sock_path,
 	          msg,
 	          strerror(-err),
@@ -479,7 +478,7 @@ elogd_svc_close(const struct elogd_svc * __restrict svc,
 	elogd_svc_assert(svc);
 	elogd_assert(poll);
 
-	elogd_debug("closing syslog service...\n");
+	elogd_debug("closing syslog service...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, svc->unsk.fd);

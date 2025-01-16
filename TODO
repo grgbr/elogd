@@ -13,8 +13,6 @@ rendered as \x09)
 
 * review source: common.[ch] pipe.[ch] main.[ch]
 
-* make sure all line end with '\n'
-
 * stats ?
 
 * traces ?
