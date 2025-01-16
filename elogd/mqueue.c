@@ -142,11 +142,16 @@ elogd_mqueue_process(struct elogd_mqueue * __restrict      mqueue,
 	if (ret)
 		goto release;
 
+#if defined(CONFIG_ELOGD_MQUEUE_REORDER_MERGE)
+	stroll_dlist_insert(messages, &line->node);
+#elif defined(CONFIG_ELOGD_MQUEUE_REORDER_INSERT)
 	stroll_dlist_insert_inorder_back(messages,
 	                                 &line->node,
 	                                 elogd_queue_line_cmp,
 	                                 NULL);
-
+#else
+#error Unsupported POSIX message queue reordering strategy !
+#endif
 	return 0;
 
 release:
@@ -218,8 +223,12 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
 		} while (--nr);
 
 sort:
-		if (cnt)
+		if (cnt) {
+#if defined(CONFIG_ELOGD_MQUEUE_REORDER_MERGE)
+			stroll_dlist_merge_sort(&tmp, elogd_queue_line_cmp, NULL);
+#endif
 			elogd_nqueue_presort(&mqueue->queue, &tmp, cnt);
+		}
 	}
 
 	if (elogd_queue_busy_count(&mqueue->queue))

@@ -74,6 +74,27 @@ config ELOGD_MQUEUE_FETCH
 	  Number of message queue messages that elogd daemon will fetch in a
 	  single polling iteration.
 
+choice
+	prompt "Message queue reordering strategy"
+	default ELOGD_MQUEUE_REORDER_MERGE
+	help
+	  Strategy used to reorder messages retrieved from message queue in the
+	  time space.
+
+config ELOGD_MQUEUE_REORDER_MERGE
+	bool "Merge sort"
+	help
+	  Use merge sort algorithm to reorder messages retrieved from message
+	  queue in the time space.
+
+config ELOGD_MQUEUE_REORDER_INSERT
+	bool "Insertion sort"
+	help
+	  Use online insertion sort algorithm to reorder messages retrieved from
+	  message queue in the time space.
+
+endchoice
+
 config ELOGD_SOCK_PATH
 	string "Syslog service socket path"
 	default "/run/elogd/sock"
