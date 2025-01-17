@@ -64,10 +64,10 @@ init_cmds=\
 
 elogd_cmd=\
 "$(realpath $prefix)/sbin/elogd"\
-" -u"\
-" -o /tmp/elogd_test/log/messages"\
+" --user"\
+" --store-path=/tmp/elogd_test/log/messages"\
 " --sock-path=/tmp/elogd_test/sock"\
-" -s /tmp/elogd_test/stat"\
+" --kern-spath=/tmp/elogd_test/stat"\
 " --mq-name=/elogd_test"
 
 gdb()

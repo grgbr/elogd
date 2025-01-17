@@ -11,16 +11,22 @@
 #include "common.h"
 #include "store.h"
 
-struct elogd_kmsg;
-struct elogd_svc;
+struct elogd_kern;
+struct elogd_sock;
 struct elogd_intern;
 struct upoll;
 
 #if defined(CONFIG_ELOGD_MQUEUE)
 struct elogd_mqueue;
-#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
 #define ELOGD_PIPE_POLL_NR (3U)
+
+#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+#define ELOGD_PIPE_POLL_NR (2U)
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
 
 /*
  * High-level pipeline object muxing pollable message sources into a single
@@ -37,10 +43,10 @@ struct elogd_pipe {
 	struct elogd_queue *  alive[ELOGD_PIPE_POLL_NR + 2];
 	/* Output message queue used as input to message store. */
 	struct elogd_queue    outq;
-	/* Kernel ring-buffer pollable message source. */
-	struct elogd_kmsg *   kmsg;
 	/* Syslog socket based service pollable message source. */
-	struct elogd_svc *    svc;
+	struct elogd_sock *   sock;
+	/* Kernel ring-buffer pollable message source. */
+	struct elogd_kern *   kern;
 #if defined(CONFIG_ELOGD_MQUEUE)
 	/* POSIX message queue based service pollable message source. */
 	struct elogd_mqueue * mqueue;

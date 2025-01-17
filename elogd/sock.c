@@ -5,7 +5,7 @@
  * Copyright (C) 2022-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
-#include "svc.h"
+#include "sock.h"
 #include "pipe.h"
 #include "log.h"
 #include <utils/time.h>
@@ -21,7 +21,7 @@
  *
  * See unix(7) and syslog(3).
  */
-struct elogd_svc {
+struct elogd_sock {
 	/* Queue of fetched syslog service socket messages. */
 	struct elogd_queue  queue;
 	/*
@@ -38,20 +38,21 @@ struct elogd_svc {
 	struct elogd_pipe * pipe;
 };
 
-#define elogd_svc_assert(_svc) \
-	elogd_assert(_svc); \
-	elogd_assert(elogd_queue_nr(&(_svc)->queue) == elogd_conf.svc_fetch); \
-	elogd_assert((_svc)->unsk.fd >= 0); \
-	elogd_assert((_svc)->pipe)
+#define elogd_sock_assert(_sock) \
+	elogd_assert(_sock); \
+	elogd_assert(elogd_queue_nr(&(_sock)->queue) == \
+	             elogd_conf.sock_fetch); \
+	elogd_assert((_sock)->unsk.fd >= 0); \
+	elogd_assert((_sock)->pipe)
 
 static __elogd_nonull(1, 2)
 int
-elogd_svc_read(const struct elogd_svc * __restrict svc,
-               struct elogd_line * __restrict      line)
+elogd_sock_read(const struct elogd_sock * __restrict sock,
+                struct elogd_line * __restrict       line)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_conf.sock_path);
-	elogd_svc_assert(svc);
+	elogd_sock_assert(sock);
 	elogd_assert(line);
 
 	const struct iovec vec = {
@@ -72,7 +73,7 @@ STROLL_IGNORE_WARN("-Wcast-qual")
 STROLL_RESTORE_WARN
 	ssize_t            ret;
 
-	ret = unsk_recv_dgram_msg(svc->unsk.fd, &msg, 0);
+	ret = unsk_recv_dgram_msg(sock->unsk.fd, &msg, 0);
 	if (ret <= 0) {
 		switch (ret) {
 		case -EAGAIN: /* No more data to read. */
@@ -122,8 +123,8 @@ STROLL_RESTORE_WARN
 
 static __elogd_nonull(1, 2)
 const char *
-elogd_svc_parse_prio(struct elogd_line * __restrict line,
-                     const char * __restrict        string)
+elogd_sock_parse_prio(struct elogd_line * __restrict line,
+                      const char * __restrict        string)
 {
 	elogd_assert(line);
 	elogd_assert(string);
@@ -139,7 +140,7 @@ elogd_svc_parse_prio(struct elogd_line * __restrict line,
 
 static __elogd_nonull(1) __elogd_pure
 char *
-elogd_svc_probe_body_start(const char * __restrict string, size_t len)
+elogd_sock_probe_body_start(const char * __restrict string, size_t len)
 {
 	elogd_assert(string);
 	elogd_assert(len);
@@ -168,9 +169,9 @@ STROLL_RESTORE_WARN
 
 static __elogd_nonull(1, 2)
 char *
-elogd_svc_parse_body(struct elogd_line * __restrict line,
-                     char * __restrict              string,
-                     size_t                         len)
+elogd_sock_parse_body(struct elogd_line * __restrict line,
+                      char * __restrict              string,
+                      size_t                         len)
 {
 	elogd_assert(line);
 	elogd_assert(string);
@@ -188,7 +189,7 @@ elogd_svc_parse_body(struct elogd_line * __restrict line,
 		return NULL;
 
 	/* Locate start of message marker. */
-	mark = elogd_svc_probe_body_start(string, len);
+	mark = elogd_sock_probe_body_start(string, len);
 	if (!mark)
 		return NULL;
 
@@ -218,9 +219,9 @@ elogd_svc_parse_body(struct elogd_line * __restrict line,
 
 static __elogd_nonull(1, 2)
 int
-elogd_svc_parse_tag(struct elogd_line * __restrict line,
-                    const char * __restrict        string,
-                    size_t                         len)
+elogd_sock_parse_tag(struct elogd_line * __restrict line,
+                     const char * __restrict        string,
+                     size_t                         len)
 {
 	elogd_assert(line);
 	elogd_assert(string);
@@ -255,7 +256,7 @@ elogd_svc_parse_tag(struct elogd_line * __restrict line,
 
 static __elogd_nonull(1)
 int
-elogd_svc_parse(struct elogd_line * __restrict line)
+elogd_sock_parse(struct elogd_line * __restrict line)
 {
 	elogd_assert(line);
 	elogd_assert(line->vector[ELOGD_LINE_MSG_IOVEC].iov_len);
@@ -267,16 +268,16 @@ elogd_svc_parse(struct elogd_line * __restrict line)
 
 	/* Parse priority tag. */
 STROLL_IGNORE_WARN("-Wcast-qual")
-	data = (char *)elogd_svc_parse_prio(line, data);
+	data = (char *)elogd_sock_parse_prio(line, data);
 STROLL_RESTORE_WARN
 	if (!data)
 		goto err;
 
-	mark = elogd_svc_parse_body(line, data, (size_t)(end - data));
+	mark = elogd_sock_parse_body(line, data, (size_t)(end - data));
 	if (!mark)
 		goto err;
 
-	if (elogd_svc_parse_tag(line, data, (size_t)(mark - data)))
+	if (elogd_sock_parse_tag(line, data, (size_t)(mark - data)))
 		goto err;
 
 	/* Assign message a timestamp within the boot time clock space. */
@@ -292,11 +293,11 @@ err:
 
 static __elogd_nonull(1)
 int
-elogd_svc_process(struct elogd_svc * __restrict svc)
+elogd_sock_process(struct elogd_sock * __restrict sock)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_conf.sock_path);
-	elogd_svc_assert(svc);
+	elogd_sock_assert(sock);
 
 	struct elogd_line * ln;
 	int                 ret;
@@ -305,16 +306,16 @@ elogd_svc_process(struct elogd_svc * __restrict svc)
 	if (!ln)
 		return -ENOBUFS;
 
-	ret = elogd_svc_read(svc, ln);
+	ret = elogd_sock_read(sock, ln);
 	if (ret)
 		goto release;
 
-	ret = elogd_svc_parse(ln);
+	ret = elogd_sock_parse(ln);
 	if (ret)
 		goto release;
 
 	/* Messages are already ordered within the boot time space. */
-	elogd_nqueue(&svc->queue, ln);
+	elogd_nqueue(&sock->queue, ln);
 
 	return 0;
 
@@ -326,9 +327,9 @@ release:
 
 static __elogd_nonull(1, 3)
 int
-elogd_svc_dispatch(struct upoll_worker * work,
-                   uint32_t              state __unused,
-                   const struct upoll *  poll __unused)
+elogd_sock_dispatch(struct upoll_worker * work,
+                    uint32_t              state __unused,
+                    const struct upoll *  poll __unused)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_conf.sock_path);
@@ -341,17 +342,17 @@ elogd_svc_dispatch(struct upoll_worker * work,
 	elogd_assert(state & (EPOLLIN | EPOLLERR));
 	elogd_assert(poll);
 
-	struct elogd_svc * svc;
-	unsigned int       cnt;
+	struct elogd_sock * sock;
+	unsigned int        cnt;
 
-	svc = containerof(work, struct elogd_svc, work);
-	elogd_svc_assert(svc);
+	sock = containerof(work, struct elogd_sock, work);
+	elogd_sock_assert(sock);
 
-	cnt = elogd_queue_free_count(&svc->queue);
+	cnt = elogd_queue_free_count(&sock->queue);
 	while (cnt--) {
 		int ret;
 
-		ret = elogd_svc_process(svc);
+		ret = elogd_sock_process(sock);
 		switch (ret) {
 		case 0:
 			/* Process next line. */
@@ -385,21 +386,21 @@ elogd_svc_dispatch(struct upoll_worker * work,
 	};
 
 publish:
-	if (elogd_queue_busy_count(&svc->queue))
-		elogd_pipe_on_alive(svc->pipe, &svc->queue);
+	if (elogd_queue_busy_count(&sock->queue))
+		elogd_pipe_on_alive(sock->pipe, &sock->queue);
 
 	return 0;
 }
 
 static __elogd_nonull(1, 2, 3)
 int
-elogd_svc_open(struct elogd_svc * __restrict   svc,
-               struct elogd_pipe * __restrict  pipe,
-               const struct upoll * __restrict poll)
+elogd_sock_open(struct elogd_sock * __restrict  sock,
+                struct elogd_pipe * __restrict  pipe,
+                const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_conf.sock_path);
-	elogd_assert(svc);
+	elogd_assert(sock);
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
@@ -411,26 +412,26 @@ elogd_svc_open(struct elogd_svc * __restrict   svc,
 	elogd_debug("initializing '%s' syslog service...",
 	            elogd_conf.sock_path);
 
-	err = unsk_dgram_svc_open(&svc->unsk, SOCK_NONBLOCK | SOCK_CLOEXEC);
+	err = unsk_dgram_svc_open(&sock->unsk, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (err) {
 		msg = "open failed";
 		goto err;
 	}
 
-	msk = umask(ALLPERMS & ~elogd_conf.svc_mode);
-	err = unsk_svc_bind(&svc->unsk, elogd_conf.sock_path);
+	msk = umask(ALLPERMS & ~elogd_conf.sock_mode);
+	err = unsk_svc_bind(&sock->unsk, elogd_conf.sock_path);
 	umask(msk);
 	if (err) {
 		msg = "bind failed";
 		goto close;
 	}
 
-	if (elogd_conf.svc_group) {
-		err = upwd_get_gid_byname(elogd_conf.svc_group, &gid);
+	if (elogd_conf.sock_group) {
+		err = upwd_get_gid_byname(elogd_conf.sock_group, &gid);
 		if (err)
 			elogd_warn("'%s': unknown logging socket group, "
 			           "using default GID %d.",
-			           elogd_conf.svc_group,
+			           elogd_conf.sock_group,
 			           gid);
 	}
 
@@ -440,15 +441,15 @@ elogd_svc_open(struct elogd_svc * __restrict   svc,
 		goto close;
 	}
 
-	svc->work.dispatch = elogd_svc_dispatch;
-	err = upoll_register(poll, svc->unsk.fd, EPOLLIN, &svc->work);
+	sock->work.dispatch = elogd_sock_dispatch;
+	err = upoll_register(poll, sock->unsk.fd, EPOLLIN, &sock->work);
 	if (err) {
 		msg = "cannot register poll worker";
 		goto close;
 	}
 
-	elogd_queue_init(&svc->queue, elogd_conf.svc_fetch);
-	svc->pipe = pipe;
+	elogd_queue_init(&sock->queue, elogd_conf.sock_fetch);
+	sock->pipe = pipe;
 
 	elogd_info("'%s' syslog service initialized.", elogd_conf.sock_path);
 
@@ -456,7 +457,7 @@ elogd_svc_open(struct elogd_svc * __restrict   svc,
 
 close:
 #if defined(CONFIG_ELOGD_DEBUG)
-	unsk_svc_close(&svc->unsk);
+	unsk_svc_close(&sock->unsk);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
 	elogd_err("cannot initialize syslog service: '%s': %s: %s (%d).",
@@ -470,69 +471,69 @@ err:
 
 static __elogd_nonull(1, 2)
 void
-elogd_svc_close(const struct elogd_svc * __restrict svc,
-                const struct upoll * __restrict     poll __unused)
+elogd_sock_close(const struct elogd_sock * __restrict sock,
+                 const struct upoll * __restrict      poll __unused)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_conf.sock_path);
-	elogd_svc_assert(svc);
+	elogd_sock_assert(sock);
 	elogd_assert(poll);
 
 	elogd_debug("closing syslog service...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
-	upoll_unregister(poll, svc->unsk.fd);
+	upoll_unregister(poll, sock->unsk.fd);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 
-	elogd_queue_fini(&svc->queue);
+	elogd_queue_fini(&sock->queue);
 
 #if defined(CONFIG_ELOGD_DEBUG)
-	unsk_svc_close(&svc->unsk);
+	unsk_svc_close(&sock->unsk);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 }
 
-struct elogd_svc *
-elogd_svc_create(struct elogd_pipe * __restrict  pipe,
-                 const struct upoll * __restrict poll)
+struct elogd_sock *
+elogd_sock_create(struct elogd_pipe * __restrict  pipe,
+                  const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_conf.sock_path);
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
-	struct elogd_svc * svc;
+	struct elogd_sock * sock;
 
-	svc = malloc(sizeof(*svc));
-	if (!svc) {
+	sock = malloc(sizeof(*sock));
+	if (!sock) {
 		errno = -ENOMEM;
 		return NULL;
 	}
 
-	if (elogd_svc_open(svc, pipe, poll))
+	if (elogd_sock_open(sock, pipe, poll))
 		goto free;
 
-	return svc;
+	return sock;
 
 free:
 #if defined(CONFIG_ELOGD_DEBUG)
-	free(svc);
+	free(sock);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	return NULL;
 }
 
 void
-elogd_svc_destroy(struct elogd_svc * __restrict  svc,
-                  const struct upoll * __restrict poll)
+elogd_sock_destroy(struct elogd_sock * __restrict  sock,
+                   const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_conf.sock_path);
-	elogd_svc_assert(svc);
+	elogd_sock_assert(sock);
 	elogd_assert(poll);
 
-	elogd_svc_close(svc, poll);
+	elogd_sock_close(sock, poll);
 
 #if defined(CONFIG_ELOGD_DEBUG)
-	free(svc);
+	free(sock);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 }

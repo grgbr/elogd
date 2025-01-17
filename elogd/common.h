@@ -50,96 +50,143 @@ extern gid_t elogd_gid;
  * Global configuration
  ******************************************************************************/
 
-#if CONFIG_ELOGD_SIZE_MIN < 4096
+#if CONFIG_ELOGD_STORE_SIZE_MIN < 4096
 #error Invalid minimum logging file size (must be >= 4096) !
 #endif
-#define ELOGD_FILE_SIZE_MIN STROLL_CONCAT(CONFIG_ELOGD_SIZE_MIN, U)
-#if CONFIG_ELOGD_SIZE_MAX > SSIZE_MAX
+#define ELOGD_STORE_SIZE_MIN STROLL_CONCAT(CONFIG_ELOGD_STORE_SIZE_MIN, U)
+
+#if CONFIG_ELOGD_STORE_SIZE_MAX > SSIZE_MAX
 #error Invalid maximum logging file size (must be <= SSIZE_MAX) !
 #endif
-#define ELOGD_FILE_SIZE_MAX STROLL_CONCAT(CONFIG_ELOGD_SIZE_MAX, U)
-#define ELOGD_FILE_ROT_MIN  STROLL_CONCAT(CONFIG_ELOGD_ROT_MIN, U)
-#define ELOGD_FILE_ROT_MAX  STROLL_CONCAT(CONFIG_ELOGD_ROT_MAX, U)
-#define ELOGD_FETCH_MIN     STROLL_CONCAT(CONFIG_ELOGD_FETCH_MIN, U)
-#define ELOGD_FETCH_MAX     STROLL_CONCAT(CONFIG_ELOGD_FETCH_MAX, U)
-#define ELOGD_DELAY_MIN     STROLL_CONCAT(CONFIG_ELOGD_DELAY_MIN, U)
-#define ELOGD_DELAY_MAX     STROLL_CONCAT(CONFIG_ELOGD_DELAY_MAX, U)
-#define ELOGD_SVC_MODE      STROLL_CONCAT(0, CONFIG_ELOGD_SVC_MODE)
-#define ELOGD_FILE_MODE     STROLL_CONCAT(0, CONFIG_ELOGD_FILE_MODE)
-#define ELOGD_DELAY         STROLL_CONCAT(CONFIG_ELOGD_DELAY, U)
+#define ELOGD_STORE_SIZE_MAX STROLL_CONCAT(CONFIG_ELOGD_STORE_SIZE_MAX, U)
+
+#if CONFIG_ELOGD_STORE_ROT_MIN < 1
+#error Invalid minimum logging file rotation count (must be >= 1) !
+#endif
+#define ELOGD_STORE_ROT_MIN  STROLL_CONCAT(CONFIG_ELOGD_STORE_ROT_MIN, U)
+#define ELOGD_STORE_ROT_MAX  STROLL_CONCAT(CONFIG_ELOGD_STORE_ROT_MAX, U)
+
+#define ELOGD_DELAY_MIN      STROLL_CONCAT(CONFIG_ELOGD_DELAY_MIN, U)
+#define ELOGD_DELAY_MAX      STROLL_CONCAT(CONFIG_ELOGD_DELAY_MAX, U)
+
+#define ELOGD_FETCH_MIN      STROLL_CONCAT(CONFIG_ELOGD_FETCH_MIN, U)
+#define ELOGD_FETCH_MAX      STROLL_CONCAT(CONFIG_ELOGD_FETCH_MAX, U)
 
 struct elogd_config {
+	/* Delay in seconds before saving message into output store. */
+	unsigned int           delay;
+
+	/* Count of allowed output message files rotation. */
+	unsigned int           store_rot;
+	/* Maximum size of a single output message file in bytes. */
+	size_t                 store_size;
+	/* Pathname to directory where output message files are stored. */
+	const char *           store_dpath;
+	/* Output message files basename. */
+	const char *           store_fbase;
+	/* Output message files basename length excluding terminating NULL. */
+	size_t                 store_flen;
+	/* Output message files permission group name. */
+	const char *           store_group;
+	/* Output message files permission mode bits. */
+	mode_t                 store_mode;
+
+	/* Username eLogd switches to at initialization time. */
 	const char *           user;
+
+	/* Pathname to eLogd advisory lock file. */
 	const char *           lock_path;
-	const char *           stat_path;
-	const char *           kmsg_path;
-	unsigned int           kmsg_fetch;
+
+	/* Console / stdio logging settings. */
+	struct elog_stdio_conf stdlog;
+
+	/* Internal eLogd messages verbosity settings. */
+	struct elog_conf       intlog;
+	/* Internal eLogd message source queue depth. */
+	unsigned int           intlog_fetch;
+
+	/* Pathname to syslog named UNIX socket. */
+	const char *           sock_path;
+	/* Syslog named UNIX socket file permission group name. */
+	const char *           sock_group;
+	/* Syslog named UNIX socket file permission mode bits. */
+	mode_t                 sock_mode;
+	/* Syslog message source queue dpeth. */
+	unsigned int           sock_fetch;
+
+	/* Pathname to kernel ring-buffer character device file. */
+	const char *           kern_dpath;
+	/* Pathname to kernel ring-buffer state tracking file. */
+	const char *           kern_spath;
+	/* Kernel ring-buffer source queue depth. */
+	unsigned int           kern_fetch;
+
 #if defined(CONFIG_ELOGD_MQUEUE)
+	/* POSIX message queue name. */
 	const char *           mqueue_name;
+	/* POSIX message source queue depth. */
 	unsigned int           mqueue_fetch;
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-	const char *           dir_path;
-	const char *           file_base;
-	size_t                 file_len;
-	const char *           file_group;
-	mode_t                 file_mode;
-	size_t                 max_size;
-	unsigned int           max_rot;
-	const char *           sock_path;
-	const char *           svc_group;
-	mode_t                 svc_mode;
-	unsigned int           svc_fetch;
-	struct elog_conf       intlog;
-	unsigned int           intlog_fetch;
-	unsigned int           delay;
-	struct elog_stdio_conf stdlog;
 };
 
-#if defined(CONFIG_ELOGD_MQUEUE)
-
-#define elogd_assert_mqueue_conf() \
-	elogd_assert(!elogd_conf.mqueue_name || \
-	             (umq_validate_name(elogd_conf.mqueue_name) > 0)); \
-	elogd_assert(elogd_conf.mqueue_fetch > 0)
-
-#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
-
-#define elogd_assert_mqueue_conf()
-
-#endif /* defined(CONFIG_ELOGD_MQUEUE) */
-
-#define elogd_assert_conf() \
+#define elogd_assert_base_conf() \
+	elogd_assert(elogd_conf.delay >= ELOGD_DELAY_MIN); \
+	elogd_assert(elogd_conf.delay <= ELOGD_DELAY_MAX); \
+	\
+	elogd_assert(elogd_conf.store_rot >= ELOGD_STORE_ROT_MIN); \
+	elogd_assert(elogd_conf.store_rot <= ELOGD_STORE_ROT_MAX); \
+	elogd_assert(elogd_conf.store_size >= ELOGD_STORE_SIZE_MIN); \
+	elogd_assert(elogd_conf.store_size <= ELOGD_STORE_SIZE_MAX); \
+	elogd_assert(upath_validate_path_name(elogd_conf.store_dpath) > 0); \
+	elogd_assert(elogd_conf.store_flen); \
+	elogd_assert((size_t)upath_validate_file_name(elogd_conf.store_fbase) \
+	             == elogd_conf.store_flen); \
+	elogd_assert(!elogd_conf.store_group || elogd_conf.store_group[0]); \
+	elogd_assert(!(elogd_conf.store_mode & ~((mode_t)DEFFILEMODE))); \
+	\
 	elogd_assert(!elogd_conf.user || \
 	             upwd_validate_user_name(elogd_conf.user) > 0); \
+	\
 	elogd_assert(upath_validate_path_name(elogd_conf.lock_path) > 0); \
-	elogd_assert(upath_validate_path_name(elogd_conf.stat_path) > 0); \
-	elogd_assert(!elogd_conf.kmsg_path || \
-	             (upath_validate_path_name(elogd_conf.kmsg_path) > 0)); \
-	elogd_assert(elogd_conf.kmsg_fetch > 0); \
-	elogd_assert_mqueue_conf(); \
-	elogd_assert(upath_validate_path_name(elogd_conf.dir_path) > 0); \
-	elogd_assert(elogd_conf.file_len); \
-	elogd_assert((size_t)upath_validate_file_name(elogd_conf.file_base) == \
-	             elogd_conf.file_len); \
-	elogd_assert(!elogd_conf.file_group || elogd_conf.file_group[0]); \
-	elogd_assert(!(elogd_conf.file_mode & ~((mode_t)DEFFILEMODE))); \
-	elogd_assert(elogd_conf.max_size >= ELOGD_FILE_SIZE_MIN); \
-	elogd_assert(elogd_conf.max_size <= ELOGD_FILE_SIZE_MAX); \
-	elogd_assert(elogd_conf.max_rot); \
-	elogd_assert(elogd_conf.max_rot <= ELOGD_FILE_ROT_MAX); \
-	elogd_assert(!elogd_conf.sock_path || \
-	             (upath_validate_path_name(elogd_conf.sock_path) > 0)); \
-	elogd_assert(!elogd_conf.svc_group || elogd_conf.svc_group[0]); \
-	elogd_assert(!(elogd_conf.svc_mode & ~((mode_t)DEFFILEMODE))); \
-	elogd_assert(elogd_conf.svc_fetch > 0); \
-	elogd_assert((elogd_conf.intlog.severity == -1) ^ \
-	             !(elogd_conf.intlog.severity & ~LOG_PRIMASK)); \
-	elogd_assert(elogd_conf.intlog_fetch > 0); \
-	elogd_assert(elogd_conf.delay > 0); \
+	\
 	elogd_assert((elogd_conf.stdlog.super.severity == -1) ^ \
 	             !(elogd_conf.stdlog.super.severity & ~LOG_PRIMASK)); \
 	elogd_assert(elogd_conf.stdlog.format == \
-	             (ELOG_TAG_FMT | ELOG_SEVERITY_FMT))
+	             (ELOG_TAG_FMT | ELOG_SEVERITY_FMT)); \
+	\
+	elogd_assert((elogd_conf.intlog.severity == -1) ^ \
+	             !(elogd_conf.intlog.severity & ~LOG_PRIMASK)); \
+	elogd_assert(elogd_conf.intlog_fetch >= ELOGD_FETCH_MIN); \
+	elogd_assert(elogd_conf.intlog_fetch <= ELOGD_FETCH_MAX); \
+	\
+	elogd_assert(!elogd_conf.sock_path || \
+	             (upath_validate_path_name(elogd_conf.sock_path) > 0)); \
+	elogd_assert(!elogd_conf.sock_group || elogd_conf.sock_group[0]); \
+	elogd_assert(!(elogd_conf.sock_mode & ~((mode_t)DEFFILEMODE))); \
+	elogd_assert(elogd_conf.sock_fetch >= ELOGD_FETCH_MIN); \
+	elogd_assert(elogd_conf.sock_fetch <= ELOGD_FETCH_MAX); \
+	\
+	elogd_assert(!elogd_conf.kern_dpath || \
+	             (upath_validate_path_name(elogd_conf.kern_dpath) > 0)); \
+	elogd_assert(upath_validate_path_name(elogd_conf.kern_spath) > 0); \
+	elogd_assert(elogd_conf.kern_fetch >= ELOGD_FETCH_MIN); \
+	elogd_assert(elogd_conf.kern_fetch <= ELOGD_FETCH_MAX)
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+#define elogd_assert_conf() \
+	elogd_assert_base_conf(); \
+	elogd_assert(!elogd_conf.mqueue_name || \
+	             (umq_validate_name(elogd_conf.mqueue_name) > 0)); \
+	elogd_assert(elogd_conf.mqueue_fetch >= ELOGD_FETCH_MIN); \
+	elogd_assert(elogd_conf.mqueue_fetch <= ELOGD_FETCH_MAX)
+
+#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+#define elogd_assert_conf() \
+	elogd_assert_base_conf(); \
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
 extern struct elogd_config elogd_conf;
 

@@ -22,34 +22,51 @@
  ******************************************************************************/
 
 struct elogd_config elogd_conf = {
-	.user            = compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
-	                                  NULL,
-	                                  CONFIG_ELOGD_USER),
-	.lock_path       = CONFIG_ELOGD_LOCK_PATH,
-	.stat_path       = CONFIG_ELOGD_STAT_PATH,
-	.kmsg_path       = CONFIG_ELOGD_KMSG_PATH,
-	.kmsg_fetch      = CONFIG_ELOGD_KMSG_FETCH,
+#define ELOGD_DELAY        STROLL_CONCAT(CONFIG_ELOGD_DELAY, U)
+	.delay        = ELOGD_DELAY,
+
+#define ELOGD_STORE_ROT    STROLL_CONCAT(CONFIG_ELOGD_STORE_ROT, U)
+	.store_rot    = ELOGD_STORE_ROT,
+#define ELOGD_STORE_SIZE   STROLL_CONCAT(CONFIG_ELOGD_STORE_SIZE, U)
+	.store_size   = ELOGD_STORE_SIZE,
+	.store_dpath  = CONFIG_ELOGD_STORE_DPATH,
+	.store_fbase  = CONFIG_ELOGD_STORE_FBASE,
+	.store_flen   = sizeof(CONFIG_ELOGD_STORE_FBASE) - 1,
+	.store_group  = compile_choose(sizeof(CONFIG_ELOGD_STORE_GROUP) == 1,
+	                               NULL,
+	                               CONFIG_ELOGD_STORE_GROUP),
+#define ELOGD_STORE_MODE   STROLL_CONCAT(0, CONFIG_ELOGD_STORE_MODE)
+	.store_mode   = ELOGD_STORE_MODE,
+
+	.user         = compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
+	                               NULL,
+	                               CONFIG_ELOGD_USER),
+
+	.lock_path    = CONFIG_ELOGD_LOCK_PATH,
+
+#define ELOGD_INTLOG_FETCH STROLL_CONCAT(CONFIG_ELOGD_INTLOG_FETCH, U)
+	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,
+
+	.sock_path    = CONFIG_ELOGD_SOCK_PATH,
+	.sock_group   = compile_choose(sizeof(CONFIG_ELOGD_SOCK_GROUP) == 1,
+	                               NULL,
+	                               CONFIG_ELOGD_SOCK_GROUP),
+#define ELOGD_SOCK_MODE    STROLL_CONCAT(0, CONFIG_ELOGD_SOCK_MODE)
+	.sock_mode    = ELOGD_SOCK_MODE,
+#define ELOGD_SOCK_FETCH   STROLL_CONCAT(CONFIG_ELOGD_SOCK_FETCH, U)
+	.sock_fetch   = ELOGD_SOCK_FETCH,
+
+	.kern_dpath   = CONFIG_ELOGD_KERN_DPATH,
+	.kern_spath   = CONFIG_ELOGD_KERN_SPATH,
+#define ELOGD_KERN_FETCH   STROLL_CONCAT(CONFIG_ELOGD_KERN_FETCH, U)
+	.kern_fetch   = ELOGD_KERN_FETCH,
+
+	/* POSIX message queue settings. */
 #if defined(CONFIG_ELOGD_MQUEUE)
-	.mqueue_name     = CONFIG_ELOGD_MQUEUE_NAME,
-	.mqueue_fetch    = CONFIG_ELOGD_MQUEUE_FETCH,
+	.mqueue_name  = CONFIG_ELOGD_MQUEUE_NAME,
+#define ELOGD_MQUEUE_FETCH STROLL_CONCAT(CONFIG_ELOGD_MQUEUE_FETCH, U)
+	.mqueue_fetch = ELOGD_MQUEUE_FETCH
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-	.dir_path        = CONFIG_ELOGD_DIR_PATH,
-	.file_base       = CONFIG_ELOGD_FILE_BASE,
-	.file_len        = sizeof(CONFIG_ELOGD_FILE_BASE) - 1,
-	.file_group      = compile_choose(sizeof(CONFIG_ELOGD_FILE_GROUP) == 1,
-	                                  NULL,
-	                                  CONFIG_ELOGD_FILE_GROUP),
-	.file_mode       = ELOGD_FILE_MODE,
-	.max_size        = CONFIG_ELOGD_SIZE,
-	.max_rot         = CONFIG_ELOGD_ROT_NR,
-	.sock_path       = CONFIG_ELOGD_SOCK_PATH,
-	.svc_group       = compile_choose(sizeof(CONFIG_ELOGD_SVC_GROUP) == 1,
-	                                  NULL,
-	                                  CONFIG_ELOGD_SVC_GROUP),
-	.svc_mode        = ELOGD_SVC_MODE,
-	.svc_fetch       = CONFIG_ELOGD_SVC_FETCH,
-	.intlog_fetch    = CONFIG_ELOGD_INTLOG_FETCH,
-	.delay           = ELOGD_DELAY
 };
 
 /******************************************************************************

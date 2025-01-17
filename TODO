@@ -1,16 +1,25 @@
+Fixes
+=====
+
+* Move to slist impl
 * Check file system permissions for mqueue / syslog socket and /dev/kmsg. Review
-with respect to CONFIG_ELOGD_SVC_GROUP and CONFIG_ELOGD_USER build / command
-line options !
+  with respect to CONFIG_ELOGD_STORE_GROUP and CONFIG_ELOGD_USER build / command
+  line options !
+* Return error upon unknown user group at file creations ??
 
-* make sure all printable characters are properly rendered (tab is actually
-rendered as \x09)
+Documentation
+=============
 
-* return error upon unknown user group at file creations ??
+* User guide and man page
+* Integration guide
+* Document source code
 
-* drop duplicates ?
+Features
+========
 
-* move to slist impl
-
-* stats ?
-
-* traces ?
+* Drop duplicate log messages and replace them with a single synthetic one ?
+* Kernel ring-buffer renders special printable characters as escaped hexadecimal
+  sequences (such as `\x09' for a TAB): translate these as real printable
+  characters ?
+* Support for LTTng traces ?
+* Compute daemon operational statistics ?

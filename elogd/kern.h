@@ -5,23 +5,23 @@
  * Copyright (C) 2022-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
-#ifndef _ELOGD_KMSG_H
-#define _ELOGD_KMSG_H
+#ifndef _ELOGD_KERN_H
+#define _ELOGD_KERN_H
 
 #include "common.h"
 
-struct elogd_kmsg;
+struct elogd_kern;
 struct elogd_pipe;
 struct upoll;
 
-extern struct elogd_kmsg *
-elogd_kmsg_create(struct elogd_pipe * __restrict  pipe,
+extern struct elogd_kern *
+elogd_kern_create(struct elogd_pipe * __restrict  pipe,
                   const struct upoll * __restrict poll)
 	__elogd_nonull(1, 2) __leaf __warn_result;
 
 extern void
-elogd_kmsg_destroy(struct elogd_kmsg * __restrict  kmsg,
+elogd_kern_destroy(struct elogd_kern * __restrict  kern,
                    const struct upoll * __restrict poll)
 	__elogd_nonull(1, 2) __leaf;
 
-#endif /* _ELOGD_KMSG_H */
+#endif /* _ELOGD_KERN_H */

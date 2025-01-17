@@ -7,8 +7,8 @@
 
 #include "pipe.h"
 #include "log.h"
-#include "kmsg.h"
-#include "svc.h"
+#include "sock.h"
+#include "kern.h"
 #include "mqueue.h"
 #include "intern.h"
 #include <utils/time.h>
@@ -27,8 +27,8 @@
 
 #define elogd_pipe_assert(_pipe) \
 	elogd_assert(_pipe); \
-	elogd_assert((_pipe)->kmsg || \
-	             (_pipe)->svc || \
+	elogd_assert((_pipe)->kern || \
+	             (_pipe)->sock || \
 	             elogd_pipe_has_mqueue(_pipe))
 
 /* Reset active message queue tracking logic. */
@@ -369,42 +369,42 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 
 	int err;
 
-	elogd_queue_init(&pipe->outq, nr);
-
 	/*
 	 * Make sure that active queues handling is properly initialized since
 	 * notifications may be sent at data channel opening time (e.g.,
-	 * elogd_kmsg_open()).
+	 * elogd_kern_open()).
 	 */
 	pipe->cnt = 0;
 	memset(pipe->alive, 0, sizeof(pipe->alive));
 
-	pipe->intern = elogd_log_the_intern();
+	elogd_queue_init(&pipe->outq, nr);
 
 	if (elogd_conf.sock_path) {
-		pipe->svc = elogd_svc_create(pipe, poll);
-		if (!pipe->svc) {
+		pipe->sock = elogd_sock_create(pipe, poll);
+		if (!pipe->sock) {
 			err = -errno;
 			goto fini_queue;
 		}
 	}
 	else
-		pipe->svc = NULL;
+		pipe->sock = NULL;
 
-	if (elogd_conf.kmsg_path) {
+	if (elogd_conf.kern_dpath) {
 #warning Fix /dev/kmsg perms
-		pipe->kmsg = elogd_kmsg_create(pipe, poll);
-		if (!pipe->kmsg) {
+		pipe->kern = elogd_kern_create(pipe, poll);
+		if (!pipe->kern) {
 			err = -errno;
-			goto destroy_svc;
+			goto destroy_sock;
 		}
 	}
 	else
-		pipe->kmsg = NULL;
+		pipe->kern = NULL;
 
 	err = elogd_pipe_create_mqueue(pipe, poll);
 	if (err)
-		goto destroy_kmsg;
+		goto destroy_kern;
+
+	pipe->intern = elogd_log_the_intern();
 
 	err = elogd_store_open(&pipe->store);
 	if (err)
@@ -425,12 +425,12 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 
 destroy_mqueue:
 	elogd_pipe_destroy_mqueue(pipe, poll);
-destroy_kmsg:
-	if (pipe->kmsg)
-		elogd_kmsg_destroy(pipe->kmsg, poll);
-destroy_svc:
-	if (pipe->svc)
-		elogd_svc_destroy(pipe->svc, poll);
+destroy_kern:
+	if (pipe->kern)
+		elogd_kern_destroy(pipe->kern, poll);
+destroy_sock:
+	if (pipe->sock)
+		elogd_sock_destroy(pipe->sock, poll);
 fini_queue:
 	elogd_queue_fini(&pipe->outq);
 
@@ -449,10 +449,10 @@ elogd_pipe_close(struct elogd_pipe * __restrict  pipe,
 	elogd_store_close(&pipe->store);
 
 	elogd_pipe_destroy_mqueue(pipe, poll);
-	if (pipe->kmsg)
-		elogd_kmsg_destroy(pipe->kmsg, poll);
-	if (pipe->svc)
-		elogd_svc_destroy(pipe->svc, poll);
+	if (pipe->kern)
+		elogd_kern_destroy(pipe->kern, poll);
+	if (pipe->sock)
+		elogd_sock_destroy(pipe->sock, poll);
 
 	elogd_queue_fini(&pipe->outq);
 }
