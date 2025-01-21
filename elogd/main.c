@@ -484,7 +484,7 @@ show_usage(void)
 	                       "`" CONFIG_ELOGD_SOCK_GROUP "'"));
 }
 
-static
+static  __elogd_nonull(2)
 int
 elogd_parse_cmdln(int argc, char * const argv[])
 {
