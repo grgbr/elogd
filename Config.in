@@ -68,6 +68,22 @@ config ELOGD_KERN_DPATH
 	help
 	  Pathname to the kernel (logging) ring-buffer character device file.
 
+config ELOGD_KERN_GROUP
+	string "Kernel ring-buffer device group"
+	default "klog"
+	help
+	  At opening time, check that the kernel ring-buffer character device
+	  file is assigned this group membership.
+	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a
+	  member of this group.
+
+config ELOGD_KERN_MODE
+	int "Kernel ring-buffer device permissions"
+	default 420
+	help
+	  At opening time, check that the kernel ring-buffer character device
+	  file is assigned this permission mode bits (in octal).
+
 config ELOGD_KERN_SPATH
 	string "Kernel ring-buffer state tracking path"
 	default "/run/elogd/stat"
@@ -140,12 +156,6 @@ config ELOGD_SOCK_PATH
 	help
 	  Pathname to socket file exposing syslog service.
 
-config ELOGD_SOCK_MODE
-	int "Syslog socket permissions"
-	default 420
-	help
-	  Permissions (in octal) assigned to syslog socket at creation time.
-
 config ELOGD_SOCK_GROUP
 	string "Syslog socket group"
 	default "logpost"
@@ -153,6 +163,12 @@ config ELOGD_SOCK_GROUP
 	  At creation time, syslog socket will be assigned to this group. Note
 	  that the system user selected by CONFIG_ELOGD_USER MUST be a member of
 	  this group.
+
+config ELOGD_SOCK_MODE
+	int "Syslog socket permissions"
+	default 420
+	help
+	  Permissions (in octal) assigned to syslog socket at creation time.
 
 config ELOGD_SOCK_FETCH
 	int "Number of syslog message fetches"
