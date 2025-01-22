@@ -22,59 +22,8 @@
 #include <getopt.h>
 #include <sysexits.h>
 
-pid_t elogd_pid = -1;
 uid_t elogd_uid;
 gid_t elogd_gid;
-
-static
-int
-elogd_parse_user_name(const char * __restrict name)
-{
-	if (name) {
-		ssize_t ret;
-
-		ret = upwd_validate_user_name(name);
-		elogd_assert(ret);
-		if (ret < 0) {
-			elogd_early_err("invalid daemon user name: %s (%d).",
-			                strerror((int)-ret),
-			                (int)-ret);
-			return EXIT_FAILURE;
-		}
-
-		elogd_conf.user = optarg;
-	}
-	else
-		elogd_conf.user = NULL;
-
-	return EXIT_SUCCESS;
-}
-
-static __elogd_nonull(1, 2, 3)
-int
-elogd_parse_path(const char * __restrict  arg,
-                 const char * __restrict  kind,
-                 const char ** __restrict path)
-{
-	elogd_assert(arg);
-	elogd_assert(kind);
-	elogd_assert(path);
-
-	ssize_t ret;
-
-	ret = upath_validate_path_name(arg);
-	if (ret < 0) {
-		elogd_early_err("invalid %s pathname: %s (%d).",
-		                kind,
-		                strerror((int)-ret),
-		                (int)-ret);
-		return EXIT_FAILURE;
-	}
-
-	*path = arg;
-
-	return EXIT_SUCCESS;
-}
 
 static __elogd_nonull(2, 3)
 int
@@ -86,7 +35,7 @@ elogd_parse_opt_path(const char * __restrict  arg,
 	elogd_assert(path);
 
 	if (arg) {
-		if (elogd_parse_path(arg, kind, path))
+		if (elogd_parse_path(arg, kind, path) < 0)
 			return EXIT_FAILURE;
 	}
 	else
@@ -112,7 +61,7 @@ elogd_parse_fetch_count(const char * __restrict   arg,
 	                            ELOGD_FETCH_MIN,
 	                            ELOGD_FETCH_MAX);
 	if (err) {
-		elogd_early_err("invalid %s fetch count: %s (%d).",
+		elogd_early_log("invalid %s fetch count: %s (%d).",
 		                kind,
 		                strerror(-err),
 		                -err);
@@ -133,7 +82,7 @@ elogd_parse_mqueue_name(const char * __restrict arg)
 
 		ret = umq_validate_name(arg);
 		if (ret < 0) {
-			elogd_early_err("invalid message queue name: %s (%d).",
+			elogd_early_log("invalid message queue name: %s (%d).",
 			                strerror((int)-ret),
 			                (int)-ret);
 			return EXIT_FAILURE;
@@ -184,7 +133,7 @@ elogd_parse_store_path(const char * __restrict path)
 
 	ret = upath_validate_path_name(path);
 	if (ret < 0) {
-		elogd_early_err("invalid output logging pathname: %s (%d).",
+		elogd_early_log("invalid output logging pathname: %s (%d).",
 		                strerror((int)-ret),
 		                (int)-ret);
 		return EXIT_FAILURE;
@@ -218,7 +167,7 @@ elogd_parse_store_path(const char * __restrict path)
 	elogd_assert(ret >= 0);
 	elogd_assert(ret <= NAME_MAX);
 	if (!ret) {
-		elogd_early_err("invalid output logging pathname: "
+		elogd_early_log("invalid output logging pathname: "
 		                "empty basename.");
 		goto free_dir;
 	}
@@ -252,26 +201,16 @@ free_tmp:
 
 static __elogd_nonull(2, 3)
 int
-elogd_parse_group_name(const char * __restrict  arg,
-                       const char * __restrict  kind,
-                       const char ** __restrict name)
+elogd_parse_opt_group_name(const char * __restrict  arg,
+                           const char * __restrict  kind,
+                           const char ** __restrict name)
 {
 	elogd_assert(kind);
 	elogd_assert(name);
 
 	if (arg) {
-		ssize_t ret;
-
-		ret = upwd_validate_group_name(arg);
-		if (ret < 0) {
-			elogd_early_err("invalid %s group name: %s (%d).",
-			                kind,
-			                strerror((int)-ret),
-			                (int)-ret);
+		if (elogd_parse_group_name(arg, kind, name))
 			return EXIT_FAILURE;
-		}
-
-		*name = arg;
 	}
 	else
 		*name = NULL;
@@ -293,7 +232,7 @@ elogd_parse_store_size(const char * __restrict size)
 	                            ELOGD_STORE_SIZE_MIN,
 	                            ELOGD_STORE_SIZE_MAX);
 	if (err) {
-		elogd_early_err("invalid output logging file size: %s (%d).",
+		elogd_early_log("invalid output logging file size: %s (%d).",
 		                strerror(-err),
 		                -err);
 		return EXIT_FAILURE;
@@ -317,7 +256,7 @@ elogd_parse_store_rot(const char * __restrict count)
 	                            ELOGD_STORE_ROT_MIN,
 	                            ELOGD_STORE_ROT_MAX);
 	if (err) {
-		elogd_early_err("invalid output logging file rotation count: "
+		elogd_early_log("invalid output logging file rotation count: "
 		                "%s (%d).",
 		                strerror(-err),
 		                -err);
@@ -342,7 +281,7 @@ elogd_parse_mode(const char * __restrict arg,
 
 	err = upath_parse_mode(arg, &bits);
 	if (err) {
-		elogd_early_err("invalid %s mode bits: %s (%d).",
+		elogd_early_log("invalid %s mode bits: %s (%d).",
 		                kind,
 		                strerror(-err),
 		                -err);
@@ -369,7 +308,7 @@ elogd_parse_delay(const char * __restrict   arg,
 	                            ELOGD_DELAY_MIN,
 	                            ELOGD_DELAY_MAX);
 	if (err) {
-		elogd_early_err("invalid delay: %s (%d).",
+		elogd_early_log("invalid delay: %s (%d).",
 		                strerror(-err),
 		                -err);
 		return EXIT_FAILURE;
@@ -377,12 +316,6 @@ elogd_parse_delay(const char * __restrict   arg,
 
 	return EXIT_SUCCESS;
 }
-
-#if defined(CONFIG_ELOGD_DEBUG)
-#define USAGE_DEBUG_LEVEL "|debug"
-#else  /* !defined(CONFIG_ELOGD_DEBUG) */
-#define USAGE_DEBUG_LEVEL
-#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 #if defined(CONFIG_ELOGD_MQUEUE)
 
@@ -410,7 +343,7 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             change UID otherwise\n" \
 "                             (defaults to %2$s)\n" \
 "    --lock-path=PATH      -- use PATH as pathname to lock file\n" \
-"                             (defaults to `" CONFIG_ELOGD_LOCK_PATH "')\n" \
+"                             (defaults to `" ELOGD_LOCK_PATH "')\n" \
 "    --std-log[=LEVEL]     -- when LEVEL is specified, set console / stdio log\n" \
 "                             severity to LEVEL, disable stdio logging otherwise\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
@@ -441,7 +374,7 @@ elogd_parse_delay(const char * __restrict   arg,
 "    --sock-path[=PATH]    -- when PATH is specified, use PATH as pathname to\n" \
 "                             syslog socket file, disable syslog service socket\n" \
 "                             otherwise\n" \
-"                             (defaults to `" CONFIG_ELOGD_SOCK_PATH "')\n" \
+"                             (defaults to `" ELOGD_SOCK_PATH "')\n" \
 "    --sock-group[=GROUP]  -- when GROUP is specified, set syslog socket file\n" \
 "                             group membership to GROUP, leave it as-is otherwise\n" \
 "                             (defaults to %4$s)\n" \
@@ -454,7 +387,7 @@ elogd_parse_delay(const char * __restrict   arg,
 "    --kern-dpath[=PATH]   -- when PATH is specified, use PATH as pathname to\n" \
 "                             kernel ring-buffer device file, disable kernel log\n" \
 "                             messages retrieval otherwise\n" \
-"                             (defaults to `" CONFIG_ELOGD_KERN_DPATH "')\n" \
+"                             (defaults to `" ELOGD_KERN_DPATH "')\n" \
 "    --kern-spath=PATH     -- use PATH as pathname to private status file\n" \
 "                             (defaults to `" CONFIG_ELOGD_KERN_SPATH "')\n" \
 "    --kern-fetch=COUNT    -- set maximum number of messages to fetch from\n" \
@@ -501,7 +434,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 		int                        opt;
 		static const struct option opts[] = {
 #define ELOGD_USER_OPT         (0)
-			{ "user",        optional_argument, NULL, ELOGD_USER_OPT },
+			{ "user",        required_argument, NULL, ELOGD_USER_OPT },
 #define ELOGD_LOCK_PATH_OPT    (1)
 			{ "lock-path",   required_argument, NULL, ELOGD_LOCK_PATH_OPT },
 #define ELOGD_STD_LOG_OPT      (2)
@@ -554,14 +487,14 @@ elogd_parse_cmdln(int argc, char * const argv[])
 
 		switch (opt) {
 		case ELOGD_USER_OPT:
-			if (elogd_parse_user_name(optarg))
+			if (elogd_parse_user_name(optarg, &elogd_conf.user))
 				goto out;
 			break;
 
 		case ELOGD_LOCK_PATH_OPT:
 			if (elogd_parse_path(optarg,
 			                     "lock file",
-			                     &elogd_conf.lock_path))
+			                     &elogd_conf.lock_path) < 0)
 				goto out;
 			break;
 
@@ -593,9 +526,9 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		case ELOGD_STORE_GROUP_OPT:
-			if (elogd_parse_group_name(optarg,
-			                           "output logging file",
-			                           &elogd_conf.store_group))
+			if (elogd_parse_opt_group_name(optarg,
+			                               "output logging file",
+			                               &elogd_conf.store_group))
 				goto out;
 			break;
 
@@ -624,9 +557,9 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		case ELOGD_SOCK_GROUP_OPT:
-			if (elogd_parse_group_name(optarg,
-			                           "syslog socket file",
-			                           &elogd_conf.sock_group))
+			if (elogd_parse_opt_group_name(optarg,
+			                               "syslog socket file",
+			                               &elogd_conf.sock_group))
 				goto out;
 			break;
 
@@ -655,7 +588,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 		case ELOGD_KERN_SPATH_OPT:
 			if (elogd_parse_path(optarg,
 			                     "private status file",
-			                     &elogd_conf.kern_spath))
+			                     &elogd_conf.kern_spath) < 0)
 				goto out;
 			break;
 
@@ -685,23 +618,23 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			goto usage;
 
 		case ':':
-			elogd_early_err("option '%s' requires an argument.\n",
+			elogd_early_log("option '%s' requires an argument.\n",
 			                argv[optind - 1]);
 			goto usage;
 
 		case '?':
-			elogd_early_err("unrecognized option '%s'.\n",
+			elogd_early_log("unrecognized option '%s'.\n",
 			                argv[optind - 1]);
 			goto usage;
 
 		default:
-			elogd_early_err("unexpected option parsing error.\n");
+			elogd_early_log("unexpected option parsing error.\n");
 			goto usage;
 		}
 	}
 
 	if (argc - optind) {
-		elogd_early_err("invalid number of arguments.\n");
+		elogd_early_log("invalid number of arguments.\n");
 		goto usage;
 	}
 
@@ -710,7 +643,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 	    !elogd_conf.mqueue_name &&
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 	    !elogd_conf.sock_path) {
-		elogd_early_err("invalid configuration: "
+		elogd_early_log("invalid configuration: "
 		                "all message sources disabled.");
 		goto out;
 	}

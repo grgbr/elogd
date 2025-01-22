@@ -419,7 +419,9 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 		elogd_pipe_reset_alive(pipe);
 	}
 
-	elogd_debug("pipeline initialized.");
+	elogd_info("pipeline initialized with %u lines of %u bytes each.",
+	           nr,
+	           ELOGD_LINE_MAX_LEN);
 
 	return 0;
 

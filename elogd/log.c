@@ -8,17 +8,7 @@
 #include "log.h"
 #include "intern.h"
 
-struct elog_multi                   elogd_logger;
-
-static const struct elog_stdio_conf elogd_stdlog_dflt = {
-	.super.severity = CONFIG_ELOGD_STDLOG_SEVERITY,
-	.format         = ELOG_TAG_FMT | ELOG_SEVERITY_FMT
-};
-
-static struct elogd_intern *        elogd_intlog;
-static const struct elog_conf       elogd_intlog_dflt = {
-	.severity = CONFIG_ELOGD_INTLOG_SEVERITY
-};
+static struct elogd_intern * elogd_intlog;
 
 struct elogd_intern *
 elogd_log_the_intern(void)
@@ -36,23 +26,12 @@ elogd_log_parse_std(struct elog_parse * __restrict parse,
 	elogd_assert(elogd_pid > 0);
 	elogd_assert(parse);
 
-	if (arg) {
-		if (elog_parse_stdio_severity(parse, &elogd_conf.stdlog, arg)) {
-			elogd_early_err("%s.", parse->error);
-			return EXIT_FAILURE;
-		}
+	if (arg)
+		return elogd_parse_stdlog(arg, parse, &elogd_conf.stdlog);
 
-#if !defined(CONFIG_ELOGD_DEBUG)
-		if (elogd_conf.stdlog.super.severity >= ELOG_DEBUG_SEVERITY) {
-			elogd_early_err("unexpected stdio log severity.");
-			return EXIT_FAILURE;
-		}
-#endif /* !defined(CONFIG_ELOGD_DEBUG) */
-	}
-	else
-		elogd_conf.stdlog.super.severity = -1;
+	elogd_conf.stdlog.super.severity = -1;
 
-	return EXIT_SUCCESS;
+	return 0;
 }
 
 int
@@ -65,13 +44,13 @@ elogd_log_parse_intern(struct elog_parse * __restrict parse,
 
 	if (arg) {
 		if (elog_parse_severity(parse, &elogd_conf.intlog, arg)) {
-			elogd_early_err("%s.", parse->error);
+			elogd_early_log("%s.", parse->error);
 			return EXIT_FAILURE;
 		}
 
 #if !defined(CONFIG_ELOGD_DEBUG)
 		if (elogd_conf.intlog.severity >= ELOG_DEBUG_SEVERITY) {
-			elogd_early_err("unexpected internal log severity.");
+			elogd_early_log("unexpected internal log severity.");
 			return EXIT_FAILURE;
 		}
 #endif /* !defined(CONFIG_ELOGD_DEBUG) */
@@ -86,16 +65,15 @@ void
 elogd_log_init_parse(struct elog_parse * __restrict stdlog_parse,
                      struct elog_parse * __restrict intlog_parse)
 {
-	elogd_assert(elogd_pid > 0);
 	elogd_assert(stdlog_parse);
 	elogd_assert(intlog_parse);
 
-	elog_init_stdio_parse(stdlog_parse,
-	                      &elogd_conf.stdlog,
-	                      &elogd_stdlog_dflt);
-	elog_init_parse(intlog_parse,
-	                &elogd_conf.intlog,
-	                &elogd_intlog_dflt);
+	static const struct elog_conf intlog_dflt = {
+		.severity = CONFIG_ELOGD_INTLOG_SEVERITY
+	};
+
+	elogd_parse_init(stdlog_parse, &elogd_conf.stdlog);
+	elog_init_parse(intlog_parse, &elogd_conf.intlog, &intlog_dflt);
 }
 
 void
@@ -106,8 +84,8 @@ elogd_log_fini_parse(struct elog_parse * __restrict stdlog_parse,
 	elogd_assert(stdlog_parse);
 	elogd_assert(intlog_parse);
 
-	elog_fini_parse(stdlog_parse);
 	elog_fini_parse(intlog_parse);
+	elogd_parse_fini(stdlog_parse);
 }
 
 int
@@ -115,61 +93,63 @@ elogd_log_enable(void)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_pid > 0);
+	elogd_assert((elogd_conf.stdlog.super.severity >= 0) ||
+	             (elogd_conf.intlog.severity >= 0));
 
 	elog_setup(ELOG_DFLT_TAG, elogd_pid);
 
+	if ((elogd_conf.stdlog.super.severity >= 0) &&
+	    (elogd_conf.intlog.severity >= 0)) {
 #if defined(CONFIG_ELOGD_DEBUG)
-	elog_init_multi(&elogd_logger, elog_destroy);
+		elogd_logger = (struct elog *)elog_create_multi(elog_destroy);
 #else  /* !defined(CONFIG_ELOGD_DEBUG) */
-	elog_init_multi(&elogd_logger, elog_fini);
+		elogd_logger = (struct elog *)elog_create_multi(elog_fini);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
+		if (!elogd_logger)
+			return -ENOMEM;
+	}
 
 	if (elogd_conf.stdlog.super.severity >= 0) {
 		struct elog * stdlog;
 
-		stdlog = elog_create_stdio(&elogd_conf.stdlog);
+		stdlog = (struct elog *)elog_create_stdio(&elogd_conf.stdlog);
 		if (!stdlog)
-			return -ENOMEM;
+			goto fini;
 
-		if (elog_register_multi_sublog(&elogd_logger, stdlog)) {
-#if defined(CONFIG_ELOGD_DEBUG)
-			elog_destroy(stdlog);
-#endif /* defined(CONFIG_ELOGD_DEBUG) */
-			return -ENOMEM;
+		if (!elogd_logger) {
+			elogd_logger = stdlog;
+			return 0;
+		}
+
+		if (elog_register_multi_sublog(
+			(struct elog_multi *)elogd_logger, stdlog)) {
+			elogd_destroy_logger(stdlog);
+			goto fini;
 		}
 	}
 
 	if (elogd_conf.intlog.severity >= 0) {
-		struct elogd_intern * intlog;
-
-		intlog = elogd_intern_create();
-		if (!intlog)
+		elogd_intlog = elogd_intern_create();
+		if (!elogd_intlog)
 			goto fini;
 
-		if (elog_register_multi_sublog(&elogd_logger,
-		                               (struct elog *)intlog)) {
-#if defined(CONFIG_ELOGD_DEBUG)
-			elog_destroy((struct elog *)intlog);
-#endif /* defined(CONFIG_ELOGD_DEBUG) */
-			goto fini;
+		if (!elogd_logger) {
+			elogd_logger = (struct elog *)elogd_intlog;
+			return 0;
 		}
 
-		elogd_intlog = intlog;
+		if (elog_register_multi_sublog(
+			(struct elog_multi *)elogd_logger,
+			(struct elog *)elogd_intlog)) {
+			elogd_destroy_logger((struct elog *)elogd_intlog);
+			goto fini;
+		}
 	}
 
 	return 0;
 
 fini:
-	elog_fini((struct elog *)&elogd_logger);
+	elogd_log_fini();
 
 	return -ENOMEM;
-}
-
-void
-elogd_log_fini(void)
-{
-	elogd_assert_conf();
-	elogd_assert(elogd_pid > 0);
-
-	elog_fini((struct elog *)&elogd_logger);
 }

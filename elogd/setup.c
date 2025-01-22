@@ -10,41 +10,147 @@ TODO: create /dev/log link
       implement elogd fallback timeout in case of store write error -ENOSPC....
 */
 
-#include <utils/path.h>
+#include "builtin.h"
+#include <stroll/bmap.h>
+#include <utils/file.h>
 #include <enbox/enbox.h>
+#include <getopt.h>
+#include <sysexits.h>
 
-/*
- * Disable writing log messages from userspace.
- *
- * See <linux>/Documentation/admin-guide/sysctl/kernel.rst
- */
+struct elogd_setup_conf {
+	bool                   kern_on;
+	bool                   kern_from_user;
+	const char *           kern_group;
+	const char *           user;
+	const char *           rundir_path;
+	size_t                 rundir_len;
+	const char *           rundir_group;
+	bool                   devlog_on;
+	bool                   store_on;
+	const char *           store_path;
+	const char *           store_group;
+	struct elog_stdio_conf stdlog;
+};
+
+#define elogd_setup_assert_conf(_conf) \
+	elogd_assert(upwd_validate_group_name((_conf)->kern_group) > 0); \
+	elogd_assert(upwd_validate_user_name((_conf)->user) > 0); \
+	elogd_assert((_conf)->rundir_len > 0); \
+	elogd_assert(((size_t) \
+	              upath_validate_path_name((_conf)->rundir_path) == \
+	              (_conf)->rundir_len)); \
+	elogd_assert(upwd_validate_group_name((_conf)->rundir_group) > 0); \
+	elogd_assert(upath_validate_path_name((_conf)->store_path) > 0); \
+	elogd_assert(upwd_validate_group_name((_conf)->store_group) > 0)
+
+static struct elogd_setup_conf elogd_setup_the_conf = {
+	.kern_on        = true,
+	.kern_from_user = false,
+	.kern_group     = CONFIG_ELOGD_KERN_GROUP,
+	.user           = CONFIG_ELOGD_USER,
+	.rundir_path    = ELOGD_RUNSTATEDIR_PATH,
+	.rundir_len     = sizeof(ELOGD_RUNSTATEDIR_PATH) - 1,
+	.rundir_group   = CONFIG_ELOGD_SOCK_GROUP,
+	.devlog_on      = true,
+	.store_on       = true,
+	.store_path     = CONFIG_ELOGD_STORE_DPATH,
+	.store_group    = CONFIG_ELOGD_STORE_GROUP
+};
+
 static
 int
-elogd_setup_kern_rdonly(void)
+elogd_setup_sysctl_write(const char * path, const char * string, size_t len)
 {
+	elogd_assert(upath_validate_path_name(path) > 0);
+	elogd_assert(string);
+	elogd_assert(strlen(string) == len);
+
 	int     fd;
 	ssize_t ret;
 
-#define ELOGD_KERN_CTRL_PATH \
-	"/proc/sys/kernel/printk_devkmsg"
-#define ELOGD_KERN_CTRL_FLAGS \
+#define ELOGD_SETUP_SYSCTL_WRITE_FLAGS \
 	(O_WRONLY | O_TRUNC | O_CLOEXEC | O_NOATIME | O_NOFOLLOW)
-	fd = ufile_open(ELOGD_KERN_CTRL_PATH, ELOGD_KERN_CTRL_FLAGS);
+	fd = ufile_open(path, ELOGD_SETUP_SYSCTL_WRITE_FLAGS);
 	if (fd < 0)
 		return fd;
 
-	ret = ufile_nointr_full_write(fd, "off", sizeof("off") - 1);
-	if (ret != (sizeof("off") - 1)) {
-		elogd_assert(ret < 0);
-		goto close;
-	}
+	do {
+		ret = ufile_write(fd, string, len);
+		if (ret < 0)
+			goto close;
+		len -= (size_t)ret;
+	} while (len);
 
 	ret = 0;
 
 close:
 	ufile_close(fd);
 
-	return ret;
+	return (int)ret;
+}
+
+/*
+ * Deny access from dmesg(8) to unprivileged users.
+ *
+ * See `dmesg_restrict' within
+ * <linux>/Documentation/admin-guide/sysctl/kernel.rst
+ */
+static
+int
+elogd_setup_kern_dmesg(void)
+{
+	return elogd_setup_sysctl_write("/proc/sys/kernel/dmesg_restrict",
+	                                "1",
+	                                1);
+}
+
+/*
+ * Disable writing log messages from userspace.
+ *
+ * See `printk_devkmsg' within
+ * <linux>/Documentation/admin-guide/sysctl/kernel.rst
+ */
+static
+int
+elogd_setup_kern_rdonly(bool rdonly)
+{
+	const char * str = rdonly ? "off" : "on";
+	size_t       len = rdonly ? 3 : 2;
+
+	return elogd_setup_sysctl_write("/proc/sys/kernel/printk_devkmsg",
+	                                str,
+	                                len);
+}
+
+static
+int
+elogd_setup_kern_log(void)
+{
+	elogd_setup_assert_conf(&elogd_setup_the_conf);
+
+	int  err;
+	bool rdonly = !elogd_setup_the_conf.kern_from_user;
+
+	err = elogd_setup_kern_rdonly(rdonly);
+	if (err) {
+		elogd_err("kernel ring-buffer: "
+		          "failed to %s writing from userspace: %s (%d).",
+		          rdonly ? "disable" : "enable",
+		          strerror(-err),
+		          -err);
+		return EXIT_FAILURE;
+	}
+
+	err = elogd_setup_kern_dmesg();
+	if (err) {
+		elogd_err("kernel ring-buffer: "
+		          "failed to disable unprivileged access: %s (%d).",
+		          strerror(-err),
+		          -err);
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
 }
 
 /*
@@ -57,56 +163,37 @@ close:
  *     <linux>/Documentation/admin-guide/devices.txt
  *     <linux>/Documentation/ABI/testing/dev-kmsg
  */
-static __elogd_nonull(1, 2)
+static
 int
-elogd_setup_kern_dev(const char * __restrict path,
-                     const char * __restrict group,
-                     bool                    rdonly)
+elogd_setup_kern_dev(void)
 {
-	elogd_assert(upath_validate_path_name(path) > 0);
-	elogd_assert(upwd_validate_group_name(group) > 0);
+	elogd_setup_assert_conf(&elogd_setup_the_conf);
 
-	git_t  gid;
+	gid_t  gid;
 	int    err;
 	mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
 
-	err = upwd_get_gid_byname(group, &gid);
+	err = upwd_get_gid_byname(elogd_setup_the_conf.kern_group, &gid);
 	if (err) {
 		elogd_err("'%s' kernel ring-buffer: "
 		          "unknown '%s' group name.",
-		          path,
-		          group);
+		          ELOGD_KERN_DPATH,
+		          elogd_setup_the_conf.kern_group);
 		return EXIT_FAILURE;
 	}
 
-	if (rdonly) {
-		err = elogd_setup_kern_rdonly();
-		if (err) {
-			elogd_err("'%s' kernel ring-buffer: "
-			          "failed to disable logging from userspace: "
-			          "%s (%d).",
-			          path,
-			          strerror(-err),
-			          -err);
-			return EXIT_FAILURE;
-		}
-
-		mode &= ~((mode_t)(S_IWGRP));
-	}
-
-	err = enbox_make_chrdev(path,
-	                        0,                 /* root */
+	err = enbox_make_chrdev(ELOGD_KERN_DPATH,
+	                        0,                 /* root */
 	                        gid,               /* klog */
 	                        mode,              /* 0660 or 0640 */
 #define ELOGD_KMSG_MAJOR (1)
 	                        ELOGD_KMSG_MAJOR,
 #define ELOGD_KMSG_MINOR (11)
-	                        ELOGD_KMSG_MINOR)
+	                        ELOGD_KMSG_MINOR);
 	if (err) {
-		elogd_err("'%s' kernel ring-buffer: "
+		elogd_err("'" ELOGD_KERN_DPATH "' kernel ring-buffer: "
 		          "failed to setup device node: "
 		          "%s (%d).",
-		          path,
 		          strerror(-err),
 		          -err);
 		return EXIT_FAILURE;
@@ -115,7 +202,7 @@ elogd_setup_kern_dev(const char * __restrict path,
 	return EXIT_SUCCESS;
 }
 
-static __elogd_nonull(1, 2, 3, 4)
+static __elogd_nonull(1, 2, 3, 5)
 int
 elogd_setup_dir(const char * __restrict path,
                 const char * __restrict user,
@@ -173,134 +260,188 @@ elogd_setup_dir(const char * __restrict path,
  * - CONFIG_ELOGD_SOCK_PATH, the UNIX named socket file allowing members of the
  *   CONFIG_ELOGD_SOCK_GROUP group to post log messages ala syslog(3).
  */
-static __elogd_nonull(1, 2, 3)
+static
 int
-elogd_setup_rundir(const char * __restrict path,
-                   const char * __restrict user,
-                   const char * __restrict group)
+elogd_setup_rundir(void)
 {
-	elogd_assert(upath_validate_path_name(path) > 0);
-	elogd_assert(upwd_validate_user_name(user) > 0);
-	elogd_assert(upwd_validate_group_name(group) > 0);
+	elogd_setup_assert_conf(&elogd_setup_the_conf);
 
-	return elogd_setup_dir(path,
-	                       user,              /* elogd */
-	                       group,             /* logpost */
-	                       S_IRWXU | S_IXGRP, /* 0710 */
+	return elogd_setup_dir(elogd_setup_the_conf.rundir_path,
+	                       elogd_setup_the_conf.user,         /* elogd */
+	                       elogd_setup_the_conf.rundir_group, /* logpost */
+	                       S_IRWXU | S_IXGRP,                 /* 0710 */
 	                       "run state");
 }
 
-
-static __elogd_nonull(1, 2, 3)
-int
-elogd_setup_storedir(const char * __restrict path,
-                     const char * __restrict user,
-                     const char * __restrict group)
+static
+ssize_t
+elogd_setup_make_path(char ** __restrict      result,
+                      const char * __restrict dir_path,
+                      size_t                  dir_len,
+                      const char * __restrict file_name,
+                      size_t                  file_len)
 {
-	elogd_assert(upath_validate_path_name(path) > 0);
-	elogd_assert(upwd_validate_user_name(user) > 0);
-	elogd_assert(upwd_validate_group_name(group) > 0);
-	elogd_assert(!(mode & ~ELOGD_RUNDIR_VALID_MODE));
+	elogd_assert(result);
+	elogd_assert(dir_len > 0);
+	elogd_assert(upath_validate_path(dir_path, dir_len + 1) > 0);
+	elogd_assert(file_len > 0);
+	elogd_assert(upath_is_file_name(file_name, file_len));
 
-	return elogd_setup_dir(path,
-	                       user,                        /* elogd */
-	                       group,                       /* logview */
-	                       S_IRWXU | S_IRGRP | S_IXGRP, /* 0750 */
-	                       "store");
+	size_t  len = dir_len + 1 + file_len;
+	char *  path;
+
+	if ((len + 1) > PATH_MAX)
+		return -ENAMETOOLONG;
+
+	path = malloc(len + 1);
+	if (!path)
+		return -ENOMEM;
+
+	memcpy(path, dir_path, dir_len);
+	path[dir_len] = '/';
+	memcpy(&path[dir_len + 1], file_name, file_len);
+	path[len] = '\0';
+
+	*result = path;
+
+	return (ssize_t)len;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-struct elogd_setup_conf {
-	bool                   kern_from_user;
-	bool                   kern_on;
-	const char *           kern_group;
-	const char *           rundir_path;
-	const char *           rundir_group;
-	bool                   devlog_on;
-	bool                   store_on;
-	const char *           store_path;
-	const char *           store_group;
-	struct elog_stdio_conf stdlog;
-};
-
-static struct elogd_setup_conf elogd_setup_the_conf = {
-	.kern_from_user = false,
-	.kern_on        = true,
-	.kern_group     = CONFIG_ELOGD_KERN_GROUP,
-	.rundir_path    = CONFIG_ELOGD_RUNDIR_PATH,
-	.rundir_group   = CONFIG_ELOGD_SOCK_GROUP,
-	.devlog_on      = true,
-	.store_on       = true,
-	.store_path     = CONFIG_ELOGD_STORE_DPATH,
-	.store_group    = CONFIG_ELOGD_STORE_GROUP,
-	.stdlog         = elogd_setup_stdio_dflt
-};
 
 static
 int
-elogd_setup_enable_log(void)
+elogd_setup_devlog(void)
 {
-	if (elogd_setup_the_conf.stdlog.super.severity >= 0) {
-		struct elog * stdlog;
+	elogd_setup_assert_conf(&elogd_setup_the_conf);
 
-		stdlog = elog_create_stdio(&elogd_setup_the_conf.stdlog);
-		if (!stdlog)
-			return -ENOMEM;
+	char * target;
+	int    ret;
 
-		elogd_log_init(stdlog);
+	if (elogd_setup_make_path(&target,
+	                          elogd_setup_the_conf.rundir_path,
+	                          elogd_setup_the_conf.rundir_len,
+	                          "/sock",
+	                          sizeof("/sock") - 1) <= 3)
+		return EXIT_FAILURE;
+
+	ret = enbox_make_slink("/dev/log", target, 0, 0);
+	if (ret) {
+		elogd_err("/dev/log symlink: failed to setup: %s (%d).",
+		          strerror(-ret),
+		          -ret);
+		ret = EXIT_FAILURE;
+		goto free;
 	}
 
-	return 0;
+	ret = EXIT_SUCCESS;
+
+free:
+	free(target);
+
+	return ret;
 }
+
+static
+int
+elogd_setup_storedir(void)
+{
+	elogd_setup_assert_conf(&elogd_setup_the_conf);
+
+	return elogd_setup_dir(elogd_setup_the_conf.store_path,
+	                       elogd_setup_the_conf.user,        /* elogd */
+	                       elogd_setup_the_conf.store_group, /* elogd */
+	                       S_IRWXU | S_IRGRP | S_IXGRP,      /* 0750 */
+	                       "store");
+}
+
+#define USAGE \
+"Usage: %1$s [OPTIONS]\n" \
+"Setup eLogd daemon runtime environment.\n" \
+"\n" \
+"With OPTIONS:\n" \
+"    --no-kern            -- do not setup kernel logging\n" \
+"    --kern-from-user     -- enable logging to kernel from userspace\n" \
+"    --kern-group=GROUP   -- set kernel log device node file group membership\n" \
+"                            to GROUP\n" \
+"                            (defaults to `" CONFIG_ELOGD_KERN_GROUP "')\n" \
+"    --user=USER          -- setup filesystem for running eLogd daemon as USER\n" \
+"                            user\n" \
+"                            (defaults to `" CONFIG_ELOGD_USER "')\n" \
+"    --rundir-path=PATH   -- use PATH as pathname to directory where volatile\n" \
+"                            internal state data are stored\n" \
+"                            (defaults to `" ELOGD_RUNSTATEDIR_PATH "')\n" \
+"    --rundir-group=GROUP -- set volatile internal state data directory group\n" \
+"                            membership to GROUP\n" \
+"                            (defaults to `" CONFIG_ELOGD_SOCK_GROUP "')\n" \
+"    --no-devlog          -- do not setup the `/dev/log' symlink\n" \
+"    --no-store           -- do not setup log store directory\n" \
+"    --store-path=PATH    -- use PATH as pathname to log store directory\n" \
+"                            (defaults to `" CONFIG_ELOGD_STORE_DPATH "')\n" \
+"    --store-group=GROUP  -- set log store directory group membership to GROUP\n" \
+"                            (defaults to `" CONFIG_ELOGD_STORE_GROUP "')\n" \
+"    --verbose=SEVERITY   -- set `%1$s' console / stdio logging verbosity level\n" \
+"                            to SEVERITY\n" \
+"                            (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
+"    --quiet              -- disable `%1$s' logging to console / stdio entirely\n" \
+"    -h|--help            -- this help message\n" \
+"\n" \
+"Where:\n" \
+"    SEVERITY := dflt|emerg|alert|crit|err|warn|notice|info" USAGE_DEBUG_LEVEL "\n"
+
+static void
+elogd_setup_show_usage(void)
+{
+	fprintf(stderr, USAGE, program_invocation_short_name);
+}
+
+static __elogd_nonull(1)
+int
+elogd_parse_rundir_path(const char * __restrict arg)
+{
+	elogd_assert(arg);
+
+	ssize_t len;
+
+	len = elogd_parse_path(arg,
+	                       "rundir directory",
+	                       &elogd_setup_the_conf.rundir_path);
+	if (len < 0)
+		return EXIT_FAILURE;
+
+	elogd_assert(len);
+
+	elogd_setup_the_conf.rundir_path = arg;
+	elogd_setup_the_conf.rundir_len = (size_t)len;
+
+	return EXIT_SUCCESS;
+}
+
+enum {
+	NO_KERN_OPT        = 1U << 0,
+	KERN_FROM_USER_OPT = 1U << 1,
+	KERN_GROUP_OPT     = 1U << 2,
+	USER_OPT           = 1U << 3,
+	RUNDIR_PATH_OPT    = 1U << 4,
+	RUNDIR_GROUP_OPT   = 1U << 5,
+	NO_DEVLOG_OPT      = 1U << 6,
+	NO_STORE_OPT       = 1U << 7,
+	STORE_PATH_OPT     = 1U << 8,
+	STORE_GROUP_OPT    = 1U << 9,
+	VERBOSE_OPT        = 1U << 10,
+	QUIET_OPT          = 1U << 11,
+	HELP_OPT           = 1U << 12,
+	MISSING_OPT        = ':',
+	UNKNOWN_OPT        = '?'
+};
 
 static  __elogd_nonull(2)
 int
 elogd_setup_parse_cmdln(int argc, char * const argv[])
 {
-	setup_assert(argc);
-	setup_assert(argv);
+	elogd_assert(argc);
+	elogd_assert(argv);
 
 	struct elog_parse parse;
-	unsigned int      optmsk = 0;
+	unsigned int      optmsk = STROLL_BMAP_INIT_CLEAR;
 	int               ret = EXIT_FAILURE;
 
 	elogd_parse_init(&parse, &elogd_setup_the_conf.stdlog);
@@ -308,31 +449,19 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 	while (true) {
 		int                        opt;
 		static const struct option opts[] = {
-#define KERN_FROM_USER_OPT (0)
-			{ "kern-from-user", no_argument,       NULL, KERN_FROM_USER_OPT},
-#define NO_KERN_OPT        (1)
 			{ "no-kern",        no_argument,       NULL, NO_KERN_OPT},
-#define KERN_GROUP_OPT     (2)
+			{ "kern-from-user", no_argument,       NULL, KERN_FROM_USER_OPT},
 			{ "kern-group",     required_argument, NULL, KERN_GROUP_OPT },
-#define RUNDIR_PATH_OPT    (3)
+			{ "user",           required_argument, NULL, USER_OPT },
 			{ "rundir-path",    required_argument, NULL, RUNDIR_PATH_OPT },
-#define RUNDIR_GROUP_OPT   (4)
 			{ "rundir-group",   required_argument, NULL, RUNDIR_GROUP_OPT },
-#define NO_DEVLOG_OPT      (5)
 			{ "no-devlog",      no_argument,       NULL, NO_DEVLOG_OPT },
-#define NO_STORE_OPT       (6)
 			{ "no-store",       no_argument,       NULL, NO_STORE_OPT },
-#define STORE_PATH_OPT     (7)
 			{ "store-path",     required_argument, NULL, STORE_PATH_OPT },
-#define STORE_GROUP_OPT    (8)
 			{ "store-group",    required_argument, NULL, STORE_GROUP_OPT },
-#define VERBOSE_OPT        (9)
 			{ "verbose",        required_argument, NULL, VERBOSE_OPT },
-#define QUIET_OPT          (10)
 			{ "quiet",          no_argument,       NULL, QUIET_OPT },
-#define HELP_OPT           ('h')
 			{ "help",           no_argument,       NULL, HELP_OPT },
-
 			{ NULL,             0,                 NULL, -1 }
 		};
 
@@ -341,12 +470,12 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		switch (opt) {
-		case KERN_FROM_USER_OPT:
-			elogd_setup_the_conf.kern_from_user = true;
-			break;
-
 		case NO_KERN_OPT:
 			elogd_setup_the_conf.kern_on = false;
+			break;
+
+		case KERN_FROM_USER_OPT:
+			elogd_setup_the_conf.kern_from_user = true;
 			break;
 
 		case KERN_GROUP_OPT:
@@ -357,10 +486,14 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
+		case USER_OPT:
+			if (elogd_parse_user_name(optarg,
+			                          &elogd_setup_the_conf.user))
+				goto out;
+			break;
+
 		case RUNDIR_PATH_OPT:
-			if (elogd_parse_path(optarg,
-			                     "rundir directory",
-			                     &elogd_setup_the_conf.rundir_path))
+			if (elogd_parse_rundir_path(optarg))
 				goto out;
 			break;
 
@@ -370,9 +503,10 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 				"rundir directory",
 				&elogd_setup_the_conf.rundir_group))
 				goto out;
+			break;
 
 		case NO_DEVLOG_OPT:
-			elogd_setup_the_conf.devlog = false;
+			elogd_setup_the_conf.devlog_on = false;
 			break;
 
 		case NO_STORE_OPT:
@@ -383,7 +517,7 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			if (elogd_parse_path(
 				optarg,
 				"store directory",
-				&elogd_setup_the_conf.store_path))
+				&elogd_setup_the_conf.store_path) < 0)
 				goto out;
 			break;
 
@@ -400,109 +534,78 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			                       &parse,
 			                       &elogd_setup_the_conf.stdlog))
 				goto out;
-			break
+			break;
 
 		case QUIET_OPT:
-			elogd_parse_quiet(&elogd_setup_the_conf.stdlog);
+			elogd_setup_the_conf.stdlog.super.severity = -1;
 			break;
 
 		case HELP_OPT:
 			ret = EX_USAGE;
 			goto usage;
 
-		case ':':
-			elogd_early_err("option '%s' requires an argument.\n",
+		case MISSING_OPT:
+			elogd_early_log("option '%s' requires an argument.\n",
 			                argv[optind - 1]);
 			goto usage;
 
-		case '?':
-			elogd_early_err("unrecognized option '%s'.\n",
+		case UNKNOWN_OPT:
+			elogd_early_log("unrecognized option '%s'.\n",
 			                argv[optind - 1]);
 			goto usage;
 
 		default:
-			elogd_early_err("unexpected option parsing error.\n");
+			elogd_early_log("unexpected option parsing error.\n");
 			goto usage;
 		}
 
-		optmsk |= (1U << opt);
+		stroll_bmap_set_mask(&optmsk, (unsigned int)opt);
 	}
 
 	if (argc - optind) {
-		elogd_early_err("invalid number of arguments.\n");
+		elogd_early_log("invalid number of arguments.\n");
 		goto usage;
 	}
 
-	if (optmsk & (1U << NO_KERN_OPT)) {
-		if (optmsk & (1U << KERN_GROUP_OPT))
-			elogd_early_warn(
-				"kernel log device file setup disabled: "
-				"ignoring --kern-group option...");
-	}
+	if (stroll_bmap_test_mask(optmsk, NO_KERN_OPT) &&
+	    stroll_bmap_test_mask(optmsk, KERN_FROM_USER_OPT | KERN_GROUP_OPT))
+		elogd_early_log(
+			"kernel log device file setup disabled, "
+			"ignoring --kern-from-user / --kern-group options...");
 
-	if (optmsk & (1U << NO_STORE_OPT)) {
-		if (optmsk & ((1U << STORE_PATH_OPT) | (1U << STORE_GROUP_OPT)))
-			elogd_early_warn(
-				"output logging directory setup disabled: "
-				"ignoring --store-path / --store-group options...");
-	}
+	if (stroll_bmap_test_mask(optmsk, NO_STORE_OPT) &&
+	    stroll_bmap_test_mask(optmsk, STORE_PATH_OPT | STORE_GROUP_OPT))
+		elogd_early_log(
+			"output logging directory setup disabled: "
+			"ignoring --store-path / --store-group options...");
 
-	if (optmsk & (1U << QUIET_OPT)) {
-		if (optmsk & (1U << VERBOSE_OPT))
-			elogd_early_warn(
-				"quiet operation requested: "
-				"ignoring --verbose option...");
-	}
+	if (stroll_bmap_test_mask(optmsk, QUIET_OPT) &&
+	    stroll_bmap_test_mask(optmsk, VERBOSE_OPT))
+		elogd_early_log("quiet operation requested: "
+		                "ignoring --verbose option...");
 
 	elogd_parse_fini(&parse);
+
+	if (!stroll_bmap_test_mask(optmsk, QUIET_OPT)) {
+		struct elog * stdlog;
+
+		stdlog = (struct elog *)
+		         elog_create_stdio(&elogd_setup_the_conf.stdlog);
+		if (!stdlog)
+			return EXIT_FAILURE;
+
+		elog_setup(ELOG_DFLT_TAG, elogd_pid);
+		elogd_logger = stdlog;
+	}
 
 	return EXIT_SUCCESS;
 
 usage:
-	show_usage();
+	elogd_setup_show_usage();
 out:
 	elogd_parse_fini(&parse);
 
 	return ret;
-}
-
-
-#define USAGE \
-"Usage: %1$s [OPTIONS]\n" \
-"Setup eLogd daemon runtime environment.\n" \
-"\n" \
-"With OPTIONS:\n" \
-"    --kern-from-user     -- enable logging to kernel from userspace\n" \
-"    --no-kern            -- do not setup kernel log device file\n" \
-"    --kern-group=GROUP   -- set kernel log device node file group membership\n" \
-"                            to GROUP\n" \
-"                            (defaults to `" CONFIG_ELOGD_KERN_GROUP "')\n" \
-"    --rundir-path=PATH   -- use PATH as pathname to directory where volatile\n" \
-"                            internal state data are stored\n"
-"                            (defaults to `" CONFIG_ELOGD_RUNSTATEDIR "')\n" \
-"    --rundir-group=GROUP -- set volatile internal state data directory group\n" \
-"                            membership to GROUP\n" \
-"                            (defaults to `" CONFIG_ELOGD_SOCK_GROUP "')\n" \
-"    --no-devlog          -- do not setup the `/dev/log' symlink\n" \
-"    --no-store           -- do not setup output logging directory\n" \
-"    --store-path=PATH    -- use PATH as pathname to output logging directory\n" \
-"                            (defaults to `" CONFIG_ELOGD_STORE_DPATH "')\n" \
-"    --store-group=GROUP  -- set output logging directory group membership to\n"
-"                            GROUP\n" \
-"                            (defaults to `" CONFIG_ELOGD_STORE_GROUP "')\n" \
-"    --verbose=SEVERITY   -- set `%1$s' console / stdio logging verbosity level\n" \
-"                            to SEVERITY\n" \
-"                            (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
-"    --quiet              -- disable `%1$s' logging to console / stdio entirely\n" \
-"    -h|--help            -- this help message\n" \
-"\n" \
-"Where:\n" \
-"    SEVERITY := dflt|emerg|alert|crit|err|warn|notice|info" USAGE_DEBUG_LEVEL "\n"
-
-static void
-show_usage(void)
-{
-	fprintf(stderr, USAGE, program_invocation_short_name);
 }
 
 int
@@ -517,36 +620,32 @@ main(int argc, char * const argv[])
 	if (ret)
 		return EXIT_FAILURE;
 
-	if (!elogd_setup_the_conf.quiet)
-		elog_init_stdio(&setup_logger, &elogd_setup_the_conf.stdlog);
+	umask(07077);
+	enbox_setup((struct elog *)&elogd_logger);
 
-	if (setup_kern_from_user())
-		goto out;
-
-	if (elogd_setup_the_conf.kern_on)
-		if  (setup_kern_dev())
+	if (elogd_setup_the_conf.kern_on) {
+		if (elogd_setup_kern_log())
 			goto out;
 
-	if (setup_rundir())
+		if  (elogd_setup_kern_dev())
+			goto out;
+	}
+
+	if (elogd_setup_rundir())
 		goto out;
 
 	if (elogd_setup_the_conf.devlog_on)
-		if (setup_devlog())
+		if (elogd_setup_devlog())
 			goto out;
 
 	if (elogd_setup_the_conf.store_on)
-		if (setup_store())
+		if (elogd_setup_storedir())
 			goto out;
 
 	ret = EXIT_SUCCESS;
 
 out:
-	if (!elogd_setup_the_conf.quiet)
-		elog_fini((struct elog *)&setup_logger);
+	elogd_log_fini();
 
 	return ret;
 }
-
-
-
-

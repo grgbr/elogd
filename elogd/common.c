@@ -42,12 +42,12 @@ struct elogd_config elogd_conf = {
 	                               NULL,
 	                               CONFIG_ELOGD_USER),
 
-	.lock_path    = CONFIG_ELOGD_LOCK_PATH,
+	.lock_path    = ELOGD_LOCK_PATH,
 
 #define ELOGD_INTLOG_FETCH STROLL_CONCAT(CONFIG_ELOGD_INTLOG_FETCH, U)
 	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,
 
-	.sock_path    = CONFIG_ELOGD_SOCK_PATH,
+	.sock_path    = ELOGD_SOCK_PATH,
 	.sock_group   = compile_choose(sizeof(CONFIG_ELOGD_SOCK_GROUP) == 1,
 	                               NULL,
 	                               CONFIG_ELOGD_SOCK_GROUP),
@@ -56,7 +56,7 @@ struct elogd_config elogd_conf = {
 #define ELOGD_SOCK_FETCH   STROLL_CONCAT(CONFIG_ELOGD_SOCK_FETCH, U)
 	.sock_fetch   = ELOGD_SOCK_FETCH,
 
-	.kern_dpath   = CONFIG_ELOGD_KERN_DPATH,
+	.kern_dpath   = ELOGD_KERN_DPATH,
 	.kern_spath   = CONFIG_ELOGD_KERN_SPATH,
 #define ELOGD_KERN_FETCH   STROLL_CONCAT(CONFIG_ELOGD_KERN_FETCH, U)
 	.kern_fetch   = ELOGD_KERN_FETCH,
@@ -319,8 +319,6 @@ elogd_alloc_init(unsigned int nr)
 	unsigned int        l;
 	struct elogd_line * lines;
 
-	elogd_early_debug("initializing line allocator...");
-
 	lines = malloc(nr * sizeof(lines[0]));
 	if (!lines)
 		return -ENOMEM;
@@ -331,11 +329,6 @@ elogd_alloc_init(unsigned int nr)
 	elogd_the_alloc.lines = lines;
 	elogd_the_alloc.nr = nr;
 
-	elogd_early_info("line allocator initialized "
-	                 "with %u lines of %u bytes each.",
-	                 nr,
-	                 ELOGD_LINE_MAX_LEN);
-
 	return 0;
 }
 
@@ -343,8 +336,6 @@ void
 elogd_alloc_fini(void)
 {
 	elogd_alloc_assert();
-
-	elogd_early_debug("terminating line allocator...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	free(elogd_the_alloc.lines);

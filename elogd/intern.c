@@ -96,8 +96,6 @@ elogd_intern_close(struct elog * __restrict logger)
 	const struct elogd_intern * intern = (const struct elogd_intern *)
 	                                     logger;
 
-	elogd_early_debug("closing internal queue...");
-
 	elogd_queue_fini(&intern->queue);
 }
 
@@ -119,8 +117,6 @@ elogd_intern_create(void)
 		errno = -ENOMEM;
 		return NULL;
 	}
-
-	elogd_early_debug("initializing internal queue...");
 
 	intern->elog.ops = &elogd_intern_ops;
 	intern->on = true;

@@ -10,17 +10,19 @@ config ELOGD_DEBUG
 	help
 	  Build eLogd with debugging support.
 
+config ELOGD_RUNSTATEDIR_ENVVAR
+	string
+	option env="RUNSTATEDIR"
+
+config ELOGD_RUNSTATEDIR
+	string
+	default ELOGD_RUNSTATEDIR_ENVVAR
+
 config ELOGD_USER
 	string "runtime user name"
 	default "elogd"
 	help
 	  System user name which eLogd daemon will switch to at running time.
-
-config ELOGD_LOCK_PATH
-	string "Lock file path"
-	default "/run/lock/elogd"
-	help
-	  Pathname to lock file.
 
 config ELOGD_STDLOG_SEVERITY
 	int "STDIO logger severity"
@@ -62,12 +64,6 @@ endmenu # menu "Internal logging source"
 
 menu "Kernel ring-buffer source"
 
-config ELOGD_KERN_DPATH
-	string "Kernel ring-buffer device path"
-	default "/dev/kmsg"
-	help
-	  Pathname to the kernel (logging) ring-buffer character device file.
-
 config ELOGD_KERN_GROUP
 	string "Kernel ring-buffer device group"
 	default "klog"
@@ -76,13 +72,6 @@ config ELOGD_KERN_GROUP
 	  file is assigned this group membership.
 	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a
 	  member of this group.
-
-config ELOGD_KERN_MODE
-	int "Kernel ring-buffer device permissions"
-	default 420
-	help
-	  At opening time, check that the kernel ring-buffer character device
-	  file is assigned this permission mode bits (in octal).
 
 config ELOGD_KERN_SPATH
 	string "Kernel ring-buffer state tracking path"
@@ -149,12 +138,6 @@ endchoice
 endif # menuconfig ELOGD_MQUEUE
 
 menu "Syslog socket source"
-
-config ELOGD_SOCK_PATH
-	string "Syslog service socket path"
-	default "/run/elogd/sock"
-	help
-	  Pathname to socket file exposing syslog service.
 
 config ELOGD_SOCK_GROUP
 	string "Syslog socket group"

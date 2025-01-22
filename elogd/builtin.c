@@ -1,47 +1,28 @@
 #include "builtin.h"
+#include <utils/path.h>
+#include <utils/pwd.h>
 
-pid_t         elogd_pid;
+pid_t         elogd_pid = -1;
 struct elog * elogd_logger;
-
-void
-elogd_log_init(struct elog * __restrict logger)
-{
-	elogd_assert(logger);
-	elogd_assert(elogd_pid > 0);
-
-	elog_setup(ELOG_DFLT_TAG, elogd_pid);
-
-	elogd_logger = logger;
-}
-
-void
-elogd_log_fini(void)
-{
-	elogd_assert(elogd_pid > 0);
-
-#if !defined(CONFIG_ELOGD_DEBUG)
-	if (elogd_logger)
-		elog_fini(elogd_logger);
-#endif /* !defined(CONFIG_ELOGD_DEBUG) */
-}
 
 int
 elogd_parse_stdlog(const char * __restrict             arg,
                    struct elog_parse * __restrict      parse,
                    struct elog_stdio_conf * __restrict config)
 {
+	elogd_assert(elogd_pid > 0);
 	elogd_assert(arg);
 	elogd_assert(parse);
 	elogd_assert(config);
 
 	if (elog_parse_stdio_severity(parse, config, arg)) {
-		elogd_early_err("%s.", parse->error);
+		elogd_early_log("%s.", parse->error);
 		return EXIT_FAILURE;
 	}
 
 #if !defined(CONFIG_ELOGD_DEBUG)
 	if (config->super.severity >= ELOG_DEBUG_SEVERITY) {
-		elogd_early_err("unexpected stdio log severity.");
+		elogd_early_log("unexpected stdio log severity.");
 		return EXIT_FAILURE;
 	}
 #endif /* !defined(CONFIG_ELOGD_DEBUG) */
@@ -49,11 +30,12 @@ elogd_parse_stdlog(const char * __restrict             arg,
 	return EXIT_SUCCESS;
 }
 
-int
+ssize_t
 elogd_parse_path(const char * __restrict  arg,
                  const char * __restrict  kind,
                  const char ** __restrict path)
 {
+	elogd_assert(elogd_pid > 0);
 	elogd_assert(arg);
 	elogd_assert(kind);
 	elogd_assert(path);
@@ -62,14 +44,33 @@ elogd_parse_path(const char * __restrict  arg,
 
 	ret = upath_validate_path_name(arg);
 	if (ret < 0) {
-		elogd_early_err("invalid %s pathname: %s (%d).",
+		elogd_early_log("invalid %s pathname: %s (%d).",
 		                kind,
+		                strerror((int)-ret),
+		                (int)-ret);
+	}
+	else
+		*path = arg;
+
+	return ret;
+}
+
+int
+elogd_parse_user_name(const char * __restrict  arg,
+                      const char ** __restrict user)
+{
+	ssize_t ret;
+
+	ret = upwd_validate_user_name(arg);
+	elogd_assert(ret);
+	if (ret < 0) {
+		elogd_early_log("invalid daemon user name: %s (%d).",
 		                strerror((int)-ret),
 		                (int)-ret);
 		return EXIT_FAILURE;
 	}
 
-	*path = arg;
+	*user = arg;
 
 	return EXIT_SUCCESS;
 }
@@ -79,6 +80,7 @@ elogd_parse_group_name(const char * __restrict  arg,
                        const char * __restrict  kind,
                        const char ** __restrict name)
 {
+	elogd_assert(elogd_pid > 0);
 	elogd_assert(arg);
 	elogd_assert(kind);
 	elogd_assert(name);
@@ -87,7 +89,7 @@ elogd_parse_group_name(const char * __restrict  arg,
 
 	ret = upwd_validate_group_name(arg);
 	if (ret < 0) {
-		elogd_early_err("invalid %s group name: %s (%d).",
+		elogd_early_log("invalid %s group name: %s (%d).",
 		                kind,
 		                strerror((int)-ret),
 		                (int)-ret);

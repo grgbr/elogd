@@ -14,6 +14,19 @@
 
 #include "elogd/config.h"
 #include <elog/elog.h>
+#include <stdio.h>
+
+/* Pathname to directory where volatile internal state data are stored. */
+#define ELOGD_RUNSTATEDIR_PATH CONFIG_ELOGD_RUNSTATEDIR "/elogd"
+
+/* Pathname to the kernel (logging) ring-buffer character device file. */
+#define ELOGD_KERN_DPATH       "/dev/kmsg"
+
+#if defined(CONFIG_ELOGD_DEBUG)
+#define USAGE_DEBUG_LEVEL "|debug"
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+#define USAGE_DEBUG_LEVEL
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 #if defined(CONFIG_ELOGD_ASSERT)
 
@@ -36,16 +49,55 @@
 
 #endif /* defined(CONFIG_ELOGD_ASSERT) */
 
+#define elogd_early_log(_format, ...) \
+	(void)fprintf(stderr, \
+	              "%s: " _format "\n", \
+	              program_invocation_short_name, \
+	              ## __VA_ARGS__)
+
 extern pid_t         elogd_pid;
 
 extern struct elog * elogd_logger;
 
-extern void
-elogd_log_init(struct elog * __restrict logger)
-	__elogd_nonull(1) __elogd_nothrow __leaf;
+static inline __elogd_nonull(2) __printf(2, 3) __elogd_nothrow
+void
+elogd_log(enum elog_severity severity, const char * __restrict format, ...)
+{
+	elogd_assert(elogd_pid > 0);
+	elogd_assert(format);
+	elogd_assert(format[0]);
 
-extern void
-elogd_log_fini(void);
+	if (elogd_logger) {
+		va_list args;
+
+		va_start(args, format);
+		elog_vlog(elogd_logger, severity, format, args);
+		va_end(args);
+	}
+}
+
+#define elogd_err(_format, ...) \
+	elogd_log(ELOG_ERR_SEVERITY, _format, ## __VA_ARGS__)
+
+#define elogd_warn(_format, ...) \
+	elogd_log(ELOG_WARNING_SEVERITY, _format, ## __VA_ARGS__)
+
+#define elogd_notice(_format, ...) \
+	elogd_log(ELOG_NOTICE_SEVERITY, _format, ## __VA_ARGS__)
+
+#define elogd_info(_format, ...) \
+	elogd_log(ELOG_INFO_SEVERITY, _format, ## __VA_ARGS__)
+
+#if defined(CONFIG_ELOGD_DEBUG)
+
+#define elogd_debug(_format, ...) \
+	elogd_log(ELOG_DEBUG_SEVERITY, _format, ## __VA_ARGS__)
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+#define elogd_debug(_format, ...)
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 extern int
 elogd_parse_stdlog(const char * __restrict             arg,
@@ -53,11 +105,16 @@ elogd_parse_stdlog(const char * __restrict             arg,
                    struct elog_stdio_conf * __restrict config)
 	__elog_nonull(1, 2, 3) __elogd_nothrow __leaf __warn_result;
 
-extern int
+extern ssize_t
 elogd_parse_path(const char * __restrict  arg,
                  const char * __restrict  kind,
                  const char ** __restrict path)
 	__elog_nonull(1, 2, 3) __elogd_nothrow __leaf __warn_result;
+
+extern int
+elogd_parse_user_name(const char * __restrict  arg,
+                      const char ** __restrict user)
+	__elog_nonull(1, 2) __elogd_nothrow __leaf __warn_result;
 
 extern int
 elogd_parse_group_name(const char * __restrict  arg,
@@ -75,6 +132,42 @@ void
 elogd_parse_fini(struct elog_parse *__restrict parse)
 {
 	elog_fini_parse(parse);
+}
+
+#if defined(CONFIG_ELOGD_DEBUG)
+
+static inline __elogd_nonull(1)
+void
+elogd_destroy_logger(struct elog * __restrict logger)
+{
+	elogd_assert(logger);
+	elogd_assert(elogd_pid > 0);
+
+	elog_destroy(logger);
+}
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+static inline __elogd_nonull(1)
+void
+elogd_destroy_logger(struct elog * __restrict logger)
+{
+	elogd_assert(logger);
+	elogd_assert(elogd_pid > 0);
+
+	elog_fini(logger);
+}
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
+static inline
+void
+elogd_log_fini(void)
+{
+	elogd_assert(elogd_pid > 0);
+
+	if (elogd_logger)
+		elogd_destroy_logger(elogd_logger);
 }
 
 #endif /* _ELOGD_BUILTIN_H */

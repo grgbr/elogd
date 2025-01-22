@@ -8,12 +8,7 @@
 #ifndef _ELOGD_COMMON_H
 #define _ELOGD_COMMON_H
 
-#if !defined(_GNU_SOURCE)
-#error elogd expects the GNU version of basename(3) !
-#endif /* !defined(_GNU_SOURCE) */
-
-#include "elogd/config.h"
-#include <elog/elog.h>
+#include "builtin.h"
 #if defined(CONFIG_ELOGD_MQUEUE)
 #include <utils/mqueue.h>
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
@@ -22,27 +17,9 @@
 #include <stroll/dlist.h>
 #include <linux/taskstats.h>
 
-#if defined(CONFIG_ELOGD_ASSERT)
+#define ELOGD_SOCK_PATH ELOGD_RUNSTATEDIR_PATH "/sock"
+#define ELOGD_LOCK_PATH CONFIG_ELOGD_RUNSTATEDIR "/lock/elogd"
 
-#include <stroll/assert.h>
-
-#define __elogd_nonull(_arg_index, ...)
-#define __elogd_pure
-#define __elogd_const
-#define __elogd_nothrow
-#define elogd_assert(_expr)             stroll_assert("elogd", _expr)
-
-#else  /* !defined(CONFIG_ELOGD_ASSERT) */
-
-#define __elogd_nonull(_arg_index, ...) __nonull(_arg_index, ## __VA_ARGS__)
-#define __elogd_pure                    __pure
-#define __elogd_const                   __const
-#define __elogd_nothrow                 __nothrow
-#define elogd_assert(_expr)             do { } while (0)
-
-#endif /* defined(CONFIG_ELOGD_ASSERT) */
-
-extern pid_t elogd_pid;
 extern uid_t elogd_uid;
 extern gid_t elogd_gid;
 
