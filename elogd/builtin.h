@@ -22,10 +22,25 @@
 /* Pathname to the kernel (logging) ring-buffer character device file. */
 #define ELOGD_KERN_DPATH       "/dev/kmsg"
 
+#define ELOGD_USER \
+	compile_eval(sizeof(CONFIG_ELOGD_USER) > 1, \
+	             CONFIG_ELOGD_USER, \
+	             "CONFIG_ELOGD_USER string empty")
+
+#define ELOGD_STORE_GROUP \
+	compile_eval(sizeof(CONFIG_ELOGD_STORE_GROUP) > 1, \
+	             CONFIG_ELOGD_STORE_GROUP, \
+	             "CONFIG_ELOGD_STORE_GROUP string empty")
+
+#define ELOGD_SOCK_GROUP \
+	compile_eval(sizeof(CONFIG_ELOGD_SOCK_GROUP) > 1, \
+	             CONFIG_ELOGD_SOCK_GROUP, \
+	             "CONFIG_ELOGD_SOCK_GROUP string empty")
+
 #if defined(CONFIG_ELOGD_DEBUG)
-#define USAGE_DEBUG_LEVEL "|debug"
+#define ELOGD_USAGE_DEBUG_LEVEL "|debug"
 #else  /* !defined(CONFIG_ELOGD_DEBUG) */
-#define USAGE_DEBUG_LEVEL
+#define ELOGD_USAGE_DEBUG_LEVEL
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 #if defined(CONFIG_ELOGD_ASSERT)

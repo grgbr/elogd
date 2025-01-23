@@ -147,12 +147,6 @@ config ELOGD_SOCK_GROUP
 	  that the system user selected by CONFIG_ELOGD_USER MUST be a member of
 	  this group.
 
-config ELOGD_SOCK_MODE
-	int "Syslog socket permissions"
-	default 420
-	help
-	  Permissions (in octal) assigned to syslog socket at creation time.
-
 config ELOGD_SOCK_FETCH
 	int "Number of syslog message fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
@@ -200,12 +194,6 @@ config ELOGD_STORE_GROUP
 	  At creation time, logging output files will be assigned to this group.
 	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a
 	  member of this group.
-
-config ELOGD_STORE_MODE
-	int "Output file permissions"
-	default 640
-	help
-	  Permissions (in octal) assigned to logging output files.
 
 config ELOGD_STORE_SIZE_MIN
 	int

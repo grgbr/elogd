@@ -44,12 +44,14 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 	const char * msg;
 	gid_t        gid = elogd_gid;
 
+#define ELOGD_STORE_FILE_FLAGS \
+	(O_WRONLY | O_APPEND | O_CLOEXEC | O_NOATIME | O_NOFOLLOW)
+#define ELOGD_STORE_FILE_MODE \
+	((mode_t)(S_IRUSR|S_IWUSR|S_IRGRP))
 	store->fd = ufile_new_at(store->dir,
 	                         store->base,
-	                         O_WRONLY | O_APPEND | O_CLOEXEC | O_NOATIME |
-	                         O_NOFOLLOW,
-	                         elogd_conf.store_mode);
-
+	                         ELOGD_STORE_FILE_FLAGS,
+	                         ELOGD_STORE_FILE_MODE);
 	if (store->fd < 0) {
 		err = store->fd;
 		msg = "open failed";
@@ -85,7 +87,7 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 		goto close;
 	}
 
-	err = ufile_fchmod(store->fd, elogd_conf.store_mode);
+	err = ufile_fchmod(store->fd, ELOGD_STORE_FILE_MODE);
 	if (err) {
 		msg = "file mode bits setup failed";
 		goto close;

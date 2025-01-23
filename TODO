@@ -1,6 +1,7 @@
 Fixes
 =====
 
+* implement elogd fallback timeout in case of store write error -ENOSPC....
 * Review kernel device file capability requirements (see kern.c)
 * Make sure sysctl kernel.printk_devkmsg is off (disable writes from userspace).
 * Make sure sysctl kernel.dmesg_restrict = 1

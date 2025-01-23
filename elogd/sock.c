@@ -418,7 +418,8 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 		goto err;
 	}
 
-	msk = umask(ALLPERMS & ~elogd_conf.sock_mode);
+#define ELOGD_SOCK_MODE (S_IRUSR | S_IWGRP)
+	msk = umask(ALLPERMS & ~ELOGD_SOCK_MODE);
 	err = unsk_svc_bind(&sock->unsk, elogd_conf.sock_path);
 	umask(msk);
 	if (err) {

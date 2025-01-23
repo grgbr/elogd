@@ -32,15 +32,9 @@ struct elogd_config elogd_conf = {
 	.store_dpath  = CONFIG_ELOGD_STORE_DPATH,
 	.store_fbase  = CONFIG_ELOGD_STORE_FBASE,
 	.store_flen   = sizeof(CONFIG_ELOGD_STORE_FBASE) - 1,
-	.store_group  = compile_choose(sizeof(CONFIG_ELOGD_STORE_GROUP) == 1,
-	                               NULL,
-	                               CONFIG_ELOGD_STORE_GROUP),
-#define ELOGD_STORE_MODE   STROLL_CONCAT(0, CONFIG_ELOGD_STORE_MODE)
-	.store_mode   = ELOGD_STORE_MODE,
+	.store_group  = ELOGD_STORE_GROUP,
 
-	.user         = compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
-	                               NULL,
-	                               CONFIG_ELOGD_USER),
+	.user         = ELOGD_USER,
 
 	.lock_path    = ELOGD_LOCK_PATH,
 
@@ -48,11 +42,7 @@ struct elogd_config elogd_conf = {
 	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,
 
 	.sock_path    = ELOGD_SOCK_PATH,
-	.sock_group   = compile_choose(sizeof(CONFIG_ELOGD_SOCK_GROUP) == 1,
-	                               NULL,
-	                               CONFIG_ELOGD_SOCK_GROUP),
-#define ELOGD_SOCK_MODE    STROLL_CONCAT(0, CONFIG_ELOGD_SOCK_MODE)
-	.sock_mode    = ELOGD_SOCK_MODE,
+	.sock_group   = ELOGD_SOCK_GROUP,
 #define ELOGD_SOCK_FETCH   STROLL_CONCAT(CONFIG_ELOGD_SOCK_FETCH, U)
 	.sock_fetch   = ELOGD_SOCK_FETCH,
 

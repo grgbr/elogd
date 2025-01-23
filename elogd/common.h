@@ -65,8 +65,6 @@ struct elogd_config {
 	size_t                 store_flen;
 	/* Output message files permission group name. */
 	const char *           store_group;
-	/* Output message files permission mode bits. */
-	mode_t                 store_mode;
 
 	/* Username eLogd switches to at initialization time. */
 	const char *           user;
@@ -86,8 +84,6 @@ struct elogd_config {
 	const char *           sock_path;
 	/* Syslog named UNIX socket file permission group name. */
 	const char *           sock_group;
-	/* Syslog named UNIX socket file permission mode bits. */
-	mode_t                 sock_mode;
 	/* Syslog message source queue dpeth. */
 	unsigned int           sock_fetch;
 
@@ -118,11 +114,9 @@ struct elogd_config {
 	elogd_assert(elogd_conf.store_flen); \
 	elogd_assert((size_t)upath_validate_file_name(elogd_conf.store_fbase) \
 	             == elogd_conf.store_flen); \
-	elogd_assert(!elogd_conf.store_group || elogd_conf.store_group[0]); \
-	elogd_assert(!(elogd_conf.store_mode & ~((mode_t)DEFFILEMODE))); \
+	elogd_assert(upwd_validate_group_name(elogd_conf.store_group) > 0); \
 	\
-	elogd_assert(!elogd_conf.user || \
-	             upwd_validate_user_name(elogd_conf.user) > 0); \
+	elogd_assert(upwd_validate_user_name(elogd_conf.user) > 0); \
 	\
 	elogd_assert(upath_validate_path_name(elogd_conf.lock_path) > 0); \
 	\
@@ -138,8 +132,7 @@ struct elogd_config {
 	\
 	elogd_assert(!elogd_conf.sock_path || \
 	             (upath_validate_path_name(elogd_conf.sock_path) > 0)); \
-	elogd_assert(!elogd_conf.sock_group || elogd_conf.sock_group[0]); \
-	elogd_assert(!(elogd_conf.sock_mode & ~((mode_t)DEFFILEMODE))); \
+	elogd_assert(upwd_validate_group_name(elogd_conf.sock_group) > 0); \
 	elogd_assert(elogd_conf.sock_fetch >= ELOGD_FETCH_MIN); \
 	elogd_assert(elogd_conf.sock_fetch <= ELOGD_FETCH_MAX); \
 	\

@@ -199,25 +199,6 @@ free_tmp:
 	return EXIT_FAILURE;
 }
 
-static __elogd_nonull(2, 3)
-int
-elogd_parse_opt_group_name(const char * __restrict  arg,
-                           const char * __restrict  kind,
-                           const char ** __restrict name)
-{
-	elogd_assert(kind);
-	elogd_assert(name);
-
-	if (arg) {
-		if (elogd_parse_group_name(arg, kind, name))
-			return EXIT_FAILURE;
-	}
-	else
-		*name = NULL;
-
-	return EXIT_SUCCESS;
-}
-
 static __elogd_nonull(1)
 int
 elogd_parse_store_size(const char * __restrict size)
@@ -262,33 +243,6 @@ elogd_parse_store_rot(const char * __restrict count)
 		                -err);
 		return EXIT_FAILURE;
 	}
-
-	return EXIT_SUCCESS;
-}
-
-static __elogd_nonull(1, 2, 3)
-int
-elogd_parse_mode(const char * __restrict arg,
-                 const char * __restrict kind,
-                 mode_t * __restrict     mode)
-{
-	elogd_assert(arg);
-	elogd_assert(kind);
-	elogd_assert(mode);
-
-	mode_t bits;
-	int    err;
-
-	err = upath_parse_mode(arg, &bits);
-	if (err) {
-		elogd_early_log("invalid %s mode bits: %s (%d).",
-		                kind,
-		                strerror(-err),
-		                -err);
-		return EXIT_FAILURE;
-	}
-
-	*mode = bits & DEFFILEMODE;
 
 	return EXIT_SUCCESS;
 }
@@ -339,9 +293,8 @@ elogd_parse_delay(const char * __restrict   arg,
 "eLogd early system logging daemon.\n" \
 "\n" \
 "With OPTIONS:\n" \
-"    --user[=USER]         -- when USER is specified, run as USER user, do not\n" \
-"                             change UID otherwise\n" \
-"                             (defaults to %2$s)\n" \
+"    --user=USER           -- run as USER user\n" \
+"                             (defaults to `" CONFIG_ELOGD_USER "')\n" \
 "    --lock-path=PATH      -- use PATH as pathname to lock file\n" \
 "                             (defaults to `" ELOGD_LOCK_PATH "')\n" \
 "    --std-log[=LEVEL]     -- when LEVEL is specified, set console / stdio log\n" \
@@ -360,11 +313,8 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_DELAY) ")\n" \
 "    --store-path=PATH     -- use PATH as pathname to output logging files\n" \
 "                             (defaults to `" CONFIG_ELOGD_STORE_DPATH "/" CONFIG_ELOGD_STORE_FBASE "')\n" \
-"    --store-group[=GROUP] -- when GROUP is specified, set output logging files\n" \
-"                             group membership to GROUP, leave it as-is otherwise\n" \
-"                             (defaults to %3$s)\n" \
-"    --store-mode=MODE     -- set output logging files file mode bits to MODE\n" \
-"                             (defaults to 0" STROLL_STRING(CONFIG_ELOGD_STORE_MODE) ")\n" \
+"    --store-group=GROUP   -- set log store files group membership to GROUP\n" \
+"                             (defaults to `" CONFIG_ELOGD_STORE_GROUP "')\n" \
 "    --store-rot=COUNT     -- rotate up to COUNT output logging files with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_ROT_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_ROT_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_ROT_NR) ")\n" \
@@ -375,11 +325,8 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             syslog socket file, disable syslog service socket\n" \
 "                             otherwise\n" \
 "                             (defaults to `" ELOGD_SOCK_PATH "')\n" \
-"    --sock-group[=GROUP]  -- when GROUP is specified, set syslog socket file\n" \
-"                             group membership to GROUP, leave it as-is otherwise\n" \
-"                             (defaults to %4$s)\n" \
-"    --sock-mode=MODE      -- set syslog socket file mode bits to MODE\n" \
-"                             (defaults to 0" STROLL_STRING(CONFIG_ELOGD_SOCK_MODE) ")\n" \
+"    --sock-group=GROUP    -- set syslog socket file group membership to GROUP\n" \
+"                             (defaults to `" CONFIG_ELOGD_SOCK_GROUP "')\n" \
 "    --sock-fetch=COUNT    -- set maximum number of messages to fetch from\n" \
 "                             syslog socket to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
@@ -398,24 +345,39 @@ USAGE_MQUEUE \
 "    -h|--help             -- this help message\n" \
 "\n" \
 "Where:\n" \
-"    LEVEL := dflt|emerg|alert|crit|err|warn|notice|info" USAGE_DEBUG_LEVEL "\n"
+"    LEVEL := dflt|emerg|alert|crit|err|warn|notice|info" ELOGD_USAGE_DEBUG_LEVEL "\n"
 
 static void
-show_usage(void)
+elogd_show_usage(void)
 {
-	fprintf(stderr,
-	        USAGE,
-	        program_invocation_short_name,
-	        compile_choose(sizeof(CONFIG_ELOGD_USER) == 1,
-	                       "current user",
-	                       "`" CONFIG_ELOGD_USER "'"),
-	        compile_choose(sizeof(CONFIG_ELOGD_STORE_GROUP) == 1,
-	                       "current group",
-	                       "`" CONFIG_ELOGD_STORE_GROUP "'"),
-	        compile_choose(sizeof(CONFIG_ELOGD_SOCK_GROUP) == 1,
-	                       "current group",
-	                       "`" CONFIG_ELOGD_SOCK_GROUP "'"));
+	fprintf(stderr, USAGE, program_invocation_short_name);
 }
+
+enum {
+	USER_OPT         = 1U << 0,
+	LOCK_PATH_OPT    = 1U << 1,
+	STD_LOG_OPT      = 1U << 2,
+	INT_LOG_OPT      = 1U << 3,
+	INT_FETCH_OPT    = 1U << 4,
+	DELAY_OPT        = 1U << 5,
+	STORE_PATH_OPT   = 1U << 6,
+	STORE_GROUP_OPT  = 1U << 7,
+	STORE_ROT_OPT    = 1U << 8,
+	STORE_SIZE_OPT   = 1U << 9,
+	SOCK_PATH_OPT    = 1U << 10,
+	SOCK_GROUP_OPT   = 1U << 11,
+	SOCK_FETCH_OPT   = 1U << 12,
+	KERN_DPATH_OPT   = 1U << 13,
+	KERN_SPATH_OPT   = 1U << 14,
+	KERN_FETCH_OPT   = 1U << 15,
+#if defined(CONFIG_ELOGD_MQUEUE)
+	MQUEUE_NAME_OPT  = 1U << 16,
+	MQUEUE_FETCH_OPT = 1U << 17,
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+	HELP_OPT         = 'h',
+	MISSING_OPT      = ':',
+	UNKNOWN_OPT      = '?'
+};
 
 static  __elogd_nonull(2)
 int
@@ -433,51 +395,27 @@ elogd_parse_cmdln(int argc, char * const argv[])
 	while (true) {
 		int                        opt;
 		static const struct option opts[] = {
-#define ELOGD_USER_OPT         (0)
-			{ "user",        required_argument, NULL, ELOGD_USER_OPT },
-#define ELOGD_LOCK_PATH_OPT    (1)
-			{ "lock-path",   required_argument, NULL, ELOGD_LOCK_PATH_OPT },
-#define ELOGD_STD_LOG_OPT      (2)
-			{ "std-log",     optional_argument, NULL, ELOGD_STD_LOG_OPT },
-#define ELOGD_INT_LOG_OPT      (3)
-			{ "int-log",     optional_argument, NULL, ELOGD_INT_LOG_OPT },
-#define ELOGD_INT_FETCH_OPT    (4)
-			{ "int-fetch",   required_argument, NULL, ELOGD_INT_FETCH_OPT },
-#define ELOGD_DELAY_OPT        (5)
-			{ "delay",       required_argument, NULL, ELOGD_DELAY_OPT },
-#define ELOGD_STORE_PATH_OPT   (6)
-			{ "store-path",  required_argument, NULL, ELOGD_STORE_PATH_OPT },
-#define ELOGD_STORE_GROUP_OPT  (7)
-			{ "store-group", optional_argument, NULL, ELOGD_STORE_GROUP_OPT },
-#define ELOGD_STORE_MODE_OPT   (8)
-			{ "store-mode",  required_argument, NULL, ELOGD_STORE_MODE_OPT },
-#define ELOGD_STORE_ROT_OPT    (9)
-			{ "store-rot",   required_argument, NULL, ELOGD_STORE_ROT_OPT },
-#define ELOGD_STORE_SIZE_OPT   (10)
-			{ "store-size",  required_argument, NULL, ELOGD_STORE_SIZE_OPT },
-#define ELOGD_SOCK_PATH_OPT    (11)
-			{ "sock-path",   optional_argument, NULL, ELOGD_SOCK_PATH_OPT },
-#define ELOGD_SOCK_GROUP_OPT   (12)
-			{ "sock-group",  optional_argument, NULL, ELOGD_SOCK_GROUP_OPT },
-#define ELOGD_SOCK_MODE_OPT    (13)
-			{ "sock-mode",   required_argument, NULL, ELOGD_SOCK_MODE_OPT },
-#define ELOGD_SOCK_FETCH_OPT   (14)
-			{ "sock-fetch",  required_argument, NULL, ELOGD_SOCK_FETCH_OPT },
-#define ELOGD_KERN_DPATH_OPT   (15)
-			{ "kern-dpath",  optional_argument, NULL, ELOGD_KERN_DPATH_OPT },
-#define ELOGD_KERN_SPATH_OPT   (16)
-			{ "kern-spath",  required_argument, NULL, ELOGD_KERN_SPATH_OPT },
-#define ELOGD_KERN_FETCH_OPT   (17)
-			{ "kern-fetch",  required_argument, NULL, ELOGD_KERN_FETCH_OPT },
+			{ "user",        required_argument, NULL, USER_OPT },
+			{ "lock-path",   required_argument, NULL, LOCK_PATH_OPT },
+			{ "std-log",     optional_argument, NULL, STD_LOG_OPT },
+			{ "int-log",     optional_argument, NULL, INT_LOG_OPT },
+			{ "int-fetch",   required_argument, NULL, INT_FETCH_OPT },
+			{ "delay",       required_argument, NULL, DELAY_OPT },
+			{ "store-path",  required_argument, NULL, STORE_PATH_OPT },
+			{ "store-group", required_argument, NULL, STORE_GROUP_OPT },
+			{ "store-rot",   required_argument, NULL, STORE_ROT_OPT },
+			{ "store-size",  required_argument, NULL, STORE_SIZE_OPT },
+			{ "sock-path",   optional_argument, NULL, SOCK_PATH_OPT },
+			{ "sock-group",  required_argument, NULL, SOCK_GROUP_OPT },
+			{ "sock-fetch",  required_argument, NULL, SOCK_FETCH_OPT },
+			{ "kern-dpath",  optional_argument, NULL, KERN_DPATH_OPT },
+			{ "kern-spath",  required_argument, NULL, KERN_SPATH_OPT },
+			{ "kern-fetch",  required_argument, NULL, KERN_FETCH_OPT },
 #if defined(CONFIG_ELOGD_MQUEUE)
-#define ELOGD_MQUEUE_NAME_OPT  (18)
-			{ "mq-name",     optional_argument, NULL, ELOGD_MQUEUE_NAME_OPT },
-#define ELOGD_MQUEUE_FETCH_OPT (19)
-			{ "mq-fetch",    required_argument, NULL, ELOGD_MQUEUE_FETCH_OPT },
+			{ "mq-name",     optional_argument, NULL, MQUEUE_NAME_OPT },
+			{ "mq-fetch",    required_argument, NULL, MQUEUE_FETCH_OPT },
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-#define ELOGD_HELP_OPT         ('h')
-			{ "help",        no_argument,       NULL, ELOGD_HELP_OPT },
-
+			{ "help",        no_argument,       NULL, HELP_OPT },
 			{ NULL,          0,                 NULL, -1 }
 		};
 
@@ -486,98 +424,84 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		switch (opt) {
-		case ELOGD_USER_OPT:
+		case USER_OPT:
 			if (elogd_parse_user_name(optarg, &elogd_conf.user))
 				goto out;
 			break;
 
-		case ELOGD_LOCK_PATH_OPT:
+		case LOCK_PATH_OPT:
 			if (elogd_parse_path(optarg,
 			                     "lock file",
 			                     &elogd_conf.lock_path) < 0)
 				goto out;
 			break;
 
-		case ELOGD_STD_LOG_OPT:
+		case STD_LOG_OPT:
 			if (elogd_log_parse_std(&stdlog_parse, optarg))
 				goto out;
 			break;
 
-		case ELOGD_INT_LOG_OPT:
+		case INT_LOG_OPT:
 			if (elogd_log_parse_intern(&intlog_parse, optarg))
 				goto out;
 			break;
 
-		case ELOGD_INT_FETCH_OPT:
+		case INT_FETCH_OPT:
 			if (elogd_parse_fetch_count(optarg,
 			                            "internal log",
 			                            &elogd_conf.sock_fetch))
 				goto out;
 			break;
 
-		case ELOGD_DELAY_OPT:
+		case DELAY_OPT:
 			if (elogd_parse_delay(optarg, &elogd_conf.delay))
 				goto out;
 			break;
 
-		case ELOGD_STORE_PATH_OPT:
+		case STORE_PATH_OPT:
 			if (elogd_parse_store_path(optarg))
 				goto out;
 			break;
 
-		case ELOGD_STORE_GROUP_OPT:
-			if (elogd_parse_opt_group_name(optarg,
-			                               "output logging file",
-			                               &elogd_conf.store_group))
+		case STORE_GROUP_OPT:
+			if (elogd_parse_group_name(optarg,
+			                           "log store file",
+			                           &elogd_conf.store_group))
 				goto out;
 			break;
 
-		case ELOGD_STORE_MODE_OPT:
-			if (elogd_parse_mode(optarg,
-			                     "output logging file",
-			                     &elogd_conf.store_mode))
-				goto out;
-			break;
-
-		case ELOGD_STORE_ROT_OPT:
+		case STORE_ROT_OPT:
 			if (elogd_parse_store_rot(optarg))
 				goto out;
 			break;
 
-		case ELOGD_STORE_SIZE_OPT:
+		case STORE_SIZE_OPT:
 			if (elogd_parse_store_size(optarg))
 				goto out;
 			break;
 
-		case ELOGD_SOCK_PATH_OPT:
+		case SOCK_PATH_OPT:
 			if (elogd_parse_opt_path(optarg,
 			                         "syslog socket file",
 			                         &elogd_conf.sock_path))
 				goto out;
 			break;
 
-		case ELOGD_SOCK_GROUP_OPT:
-			if (elogd_parse_opt_group_name(optarg,
-			                               "syslog socket file",
-			                               &elogd_conf.sock_group))
+		case SOCK_GROUP_OPT:
+			if (elogd_parse_group_name(optarg,
+			                           "syslog socket file",
+			                           &elogd_conf.sock_group))
 				goto out;
 			break;
 
-		case ELOGD_SOCK_MODE_OPT:
-			if (elogd_parse_mode(optarg,
-			                     "syslog socket file",
-			                     &elogd_conf.sock_mode))
-				goto out;
-			break;
-
-		case ELOGD_SOCK_FETCH_OPT:
+		case SOCK_FETCH_OPT:
 			if (elogd_parse_fetch_count(optarg,
 			                            "syslog socket",
 			                            &elogd_conf.sock_fetch))
 				goto out;
 			break;
 
-		case ELOGD_KERN_DPATH_OPT:
+		case KERN_DPATH_OPT:
 			if (elogd_parse_opt_path(
 				optarg,
 				"kernel ring-buffer device file",
@@ -585,14 +509,14 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
-		case ELOGD_KERN_SPATH_OPT:
+		case KERN_SPATH_OPT:
 			if (elogd_parse_path(optarg,
 			                     "private status file",
 			                     &elogd_conf.kern_spath) < 0)
 				goto out;
 			break;
 
-		case ELOGD_KERN_FETCH_OPT:
+		case KERN_FETCH_OPT:
 			if (elogd_parse_fetch_count(optarg,
 			                            "kernel ring-buffer",
 			                            &elogd_conf.kern_fetch))
@@ -600,12 +524,12 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 #if defined(CONFIG_ELOGD_MQUEUE)
-		case ELOGD_MQUEUE_NAME_OPT:
+		case MQUEUE_NAME_OPT:
 			if (elogd_parse_mqueue_name(optarg))
 				goto out;
 			break;
 
-		case ELOGD_MQUEUE_FETCH_OPT:
+		case MQUEUE_FETCH_OPT:
 			if (elogd_parse_fetch_count(optarg,
 			                            "message queue",
 			                            &elogd_conf.mqueue_fetch))
@@ -613,16 +537,16 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
-		case ELOGD_HELP_OPT:
+		case HELP_OPT:
 			ret = EX_USAGE;
 			goto usage;
 
-		case ':':
+		case MISSING_OPT:
 			elogd_early_log("option '%s' requires an argument.\n",
 			                argv[optind - 1]);
 			goto usage;
 
-		case '?':
+		case UNKNOWN_OPT:
 			elogd_early_log("unrecognized option '%s'.\n",
 			                argv[optind - 1]);
 			goto usage;
@@ -653,7 +577,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 	return EXIT_SUCCESS;
 
 usage:
-	show_usage();
+	elogd_show_usage();
 out:
 	elogd_free_logfile_paths();
 #if defined(CONFIG_ELOGD_DEBUG)
@@ -695,7 +619,7 @@ elogd_secure(void)
 	int err;
 
 	umask(07077);
-	enbox_setup((struct elog *)&elogd_logger);
+	enbox_setup((struct elog *)elogd_logger);
 
 	err = enbox_lock_caps();
 	if (err)
