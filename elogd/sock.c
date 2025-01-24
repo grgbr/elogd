@@ -51,7 +51,7 @@ elogd_sock_read(const struct elogd_sock * __restrict sock,
                 struct elogd_line * __restrict       line)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.sock_path);
+	elogd_assert(elogd_conf.sock_on);
 	elogd_sock_assert(sock);
 	elogd_assert(line);
 
@@ -296,7 +296,7 @@ int
 elogd_sock_process(struct elogd_sock * __restrict sock)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.sock_path);
+	elogd_assert(elogd_conf.sock_on);
 	elogd_sock_assert(sock);
 
 	struct elogd_line * ln;
@@ -332,7 +332,7 @@ elogd_sock_dispatch(struct upoll_worker * work,
                     const struct upoll *  poll __unused)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.sock_path);
+	elogd_assert(elogd_conf.sock_on);
 	elogd_assert(work);
 	elogd_assert(state);
 	elogd_assert(!(state & EPOLLOUT));
@@ -399,18 +399,26 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
                 const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.sock_path);
+	elogd_assert(elogd_conf.sock_on);
 	elogd_assert(sock);
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
+	char *       path;
 	int          err;
 	const char * msg;
 	mode_t       msk;
 	gid_t        gid = elogd_gid;
 
-	elogd_debug("initializing '%s' syslog service...",
-	            elogd_conf.sock_path);
+	err = (int)elogd_make_path(&path,
+	                           elogd_conf.rundir_path,
+	                           elogd_conf.rundir_len,
+	                           "sock",
+	                           sizeof("sock") - 1);
+	if (err < 0)
+		return err;
+
+	elogd_debug("initializing '%s' syslog service...", path);
 
 	err = unsk_dgram_svc_open(&sock->unsk, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (err) {
@@ -420,23 +428,21 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 
 #define ELOGD_SOCK_MODE (S_IRUSR | S_IWGRP)
 	msk = umask(ALLPERMS & ~ELOGD_SOCK_MODE);
-	err = unsk_svc_bind(&sock->unsk, elogd_conf.sock_path);
+	err = unsk_svc_bind(&sock->unsk, path);
 	umask(msk);
 	if (err) {
 		msg = "bind failed";
 		goto close;
 	}
 
-	if (elogd_conf.sock_group) {
-		err = upwd_get_gid_byname(elogd_conf.sock_group, &gid);
-		if (err)
-			elogd_warn("'%s': unknown logging socket group, "
-			           "using default GID %d.",
-			           elogd_conf.sock_group,
-			           gid);
-	}
+	err = upwd_get_gid_byname(elogd_conf.rundir_group, &gid);
+	if (err)
+		elogd_warn("'%s': unknown logging socket group, "
+		           "using default GID %d.",
+		           elogd_conf.rundir_group,
+		           gid);
 
-	err = upath_chown(elogd_conf.sock_path, elogd_uid, gid);
+	err = upath_chown(path, elogd_uid, gid);
 	if (err) {
 		msg = "owner / group membership setup failed";
 		goto close;
@@ -452,7 +458,9 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 	elogd_queue_init(&sock->queue, elogd_conf.sock_fetch);
 	sock->pipe = pipe;
 
-	elogd_info("'%s' syslog service initialized.", elogd_conf.sock_path);
+	elogd_info("'%s' syslog service initialized.", path);
+
+	free(path);
 
 	return 0;
 
@@ -462,10 +470,13 @@ close:
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
 	elogd_err("cannot initialize syslog service: '%s': %s: %s (%d).",
-	          elogd_conf.sock_path,
+	          path,
 	          msg,
 	          strerror(-err),
 	          -err);
+#if defined(CONFIG_ELOGD_DEBUG)
+	free(path);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	return err;
 }
@@ -476,7 +487,7 @@ elogd_sock_close(const struct elogd_sock * __restrict sock,
                  const struct upoll * __restrict      poll __unused)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.sock_path);
+	elogd_assert(elogd_conf.sock_on);
 	elogd_sock_assert(sock);
 	elogd_assert(poll);
 
@@ -498,7 +509,7 @@ elogd_sock_create(struct elogd_pipe * __restrict  pipe,
                   const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.sock_path);
+	elogd_assert(elogd_conf.sock_on);
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
@@ -528,7 +539,7 @@ elogd_sock_destroy(struct elogd_sock * __restrict  sock,
                    const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.sock_path);
+	elogd_assert(elogd_conf.sock_on);
 	elogd_sock_assert(sock);
 	elogd_assert(poll);
 

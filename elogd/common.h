@@ -80,21 +80,29 @@ struct elogd_config {
 	/* Internal eLogd message source queue depth. */
 	unsigned int           intlog_fetch;
 
-	/* Pathname to syslog named UNIX socket. */
-	const char *           sock_path;
-	/* Syslog named UNIX socket file permission group name. */
-	const char *           sock_group;
+	/* Pathname to volatile internal state data directory. */
+	const char *           rundir_path;
+	/* Length of pathname to volatile internal state data directory. */
+	size_t                 rundir_len;
+	/*
+	 * Permission group name of volatile internal state data directory (and
+	 * Syslog named UNIX socket file).
+	 */
+	const char *           rundir_group;
+
+	/* Syslog named UNIX socket source enabled ? */
+	bool                   sock_on;
 	/* Syslog message source queue dpeth. */
 	unsigned int           sock_fetch;
 
-	/* Pathname to kernel ring-buffer character device file. */
-	const char *           kern_dpath;
-	/* Pathname to kernel ring-buffer state tracking file. */
-	const char *           kern_spath;
+	/* Kernel log source enabled ? */
+	bool                   kern_on;
 	/* Kernel ring-buffer source queue depth. */
 	unsigned int           kern_fetch;
 
 #if defined(CONFIG_ELOGD_MQUEUE)
+	/* POSIX message queue log source enabled ? */
+	bool                   mqueue_on;
 	/* POSIX message queue name. */
 	const char *           mqueue_name;
 	/* POSIX message source queue depth. */
@@ -122,23 +130,22 @@ struct elogd_config {
 	\
 	elogd_assert((elogd_conf.stdlog.super.severity == -1) ^ \
 	             !(elogd_conf.stdlog.super.severity & ~LOG_PRIMASK)); \
-	elogd_assert(elogd_conf.stdlog.format == \
-	             (ELOG_TAG_FMT | ELOG_SEVERITY_FMT)); \
+	elogd_assert(elogd_conf.stdlog.format == ELOG_TAG_FMT); \
 	\
 	elogd_assert((elogd_conf.intlog.severity == -1) ^ \
 	             !(elogd_conf.intlog.severity & ~LOG_PRIMASK)); \
 	elogd_assert(elogd_conf.intlog_fetch >= ELOGD_FETCH_MIN); \
 	elogd_assert(elogd_conf.intlog_fetch <= ELOGD_FETCH_MAX); \
 	\
-	elogd_assert(!elogd_conf.sock_path || \
-	             (upath_validate_path_name(elogd_conf.sock_path) > 0)); \
-	elogd_assert(upwd_validate_group_name(elogd_conf.sock_group) > 0); \
+	elogd_assert(elogd_conf.rundir_len > 0); \
+	elogd_assert((size_t) \
+	             upath_validate_path_name(elogd_conf.rundir_path) == \
+	             elogd_conf.rundir_len); \
+	elogd_assert(upwd_validate_group_name(elogd_conf.rundir_group) > 0); \
+	\
 	elogd_assert(elogd_conf.sock_fetch >= ELOGD_FETCH_MIN); \
 	elogd_assert(elogd_conf.sock_fetch <= ELOGD_FETCH_MAX); \
 	\
-	elogd_assert(!elogd_conf.kern_dpath || \
-	             (upath_validate_path_name(elogd_conf.kern_dpath) > 0)); \
-	elogd_assert(upath_validate_path_name(elogd_conf.kern_spath) > 0); \
 	elogd_assert(elogd_conf.kern_fetch >= ELOGD_FETCH_MIN); \
 	elogd_assert(elogd_conf.kern_fetch <= ELOGD_FETCH_MAX)
 
@@ -146,8 +153,7 @@ struct elogd_config {
 
 #define elogd_assert_conf() \
 	elogd_assert_base_conf(); \
-	elogd_assert(!elogd_conf.mqueue_name || \
-	             (umq_validate_name(elogd_conf.mqueue_name) > 0)); \
+	elogd_assert(umq_validate_name(elogd_conf.mqueue_name) > 0); \
 	elogd_assert(elogd_conf.mqueue_fetch >= ELOGD_FETCH_MIN); \
 	elogd_assert(elogd_conf.mqueue_fetch <= ELOGD_FETCH_MAX)
 

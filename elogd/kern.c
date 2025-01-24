@@ -69,7 +69,7 @@ elogd_kern_read(const struct elogd_kern * __restrict kern,
                 struct elogd_line * __restrict       line)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_kern_assert(kern);
 	elogd_assert(line);
 
@@ -326,7 +326,7 @@ int
 elogd_kern_process(struct elogd_kern * __restrict kern)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_kern_assert(kern);
 
 	struct elogd_line * line;
@@ -364,7 +364,7 @@ elogd_kern_dispatch(struct upoll_worker * work,
                     const struct upoll *  poll __unused)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_assert(work);
 	elogd_assert(state);
 	elogd_assert(!(state & EPOLLOUT));
@@ -411,7 +411,7 @@ int
 elogd_kern_skip(struct elogd_kern * __restrict kern)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_kern_assert(kern);
 
 	struct elogd_line * line;
@@ -458,16 +458,25 @@ int
 elogd_kern_open_stat(struct elogd_kern * __restrict kern)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_assert(kern);
 
+	char *       path;
 	int          fd;
 	int          err;
 	struct stat  st;
 	const char * msg;
 	uint64_t *   seqno;
 
-	fd = ufile_new(elogd_conf.kern_spath,
+	err = (int)elogd_make_path(&path,
+	                           elogd_conf.rundir_path,
+	                           elogd_conf.rundir_len,
+	                           "stat",
+	                           sizeof("stat") - 1);
+	if (err < 0)
+		return err;
+
+	fd = ufile_new(path,
 	               O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NOATIME,
 	               S_IRUSR | S_IWUSR);
 	if (fd < 0) {
@@ -523,16 +532,21 @@ elogd_kern_open_stat(struct elogd_kern * __restrict kern)
 	kern->stat_fd = fd;
 	kern->seqno = seqno;
 
+	free(path);
+
 	return 0;
 
 close:
 	ufile_close(fd);
 err:
 	elogd_err("'%s': %s: %s (%d).",
-	          elogd_conf.kern_spath,
+	          path,
 	          msg,
 	          strerror(-err),
 	          -err);
+#if defined(CONFIG_ELOGD_DEBUG)
+	free(path);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	return err;
 }
@@ -544,7 +558,7 @@ elogd_kern_open(struct elogd_kern * __restrict  kern,
                 const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_assert(kern);
 	elogd_assert(pipe);
 	elogd_assert(poll);
@@ -559,7 +573,7 @@ elogd_kern_open(struct elogd_kern * __restrict  kern,
 	 * This will require CAP_SYSLOG or CAP_SYS_ADMIN capability if kernel is
 	 * built with CONFIG_SECURITY_DMESG_RESTRICT enabled !!
 	 */
-	fd = ufd_open(elogd_conf.kern_dpath,
+	fd = ufd_open(ELOGD_KERN_DPATH,
 	              O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NOFOLLOW |
 	              O_NONBLOCK);
 	if (fd < 0) {
@@ -631,7 +645,7 @@ elogd_kern_close(const struct elogd_kern * __restrict kern,
                  const struct upoll * __restrict      poll __unused)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_kern_assert(kern);
 	elogd_assert(poll);
 
@@ -656,7 +670,7 @@ elogd_kern_create(struct elogd_pipe * __restrict  pipe,
                   const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
@@ -686,7 +700,7 @@ elogd_kern_destroy(struct elogd_kern * __restrict  kern,
                    const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.kern_dpath);
+	elogd_assert(elogd_conf.kern_on);
 	elogd_kern_assert(kern);
 	elogd_assert(poll);
 

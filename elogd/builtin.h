@@ -127,6 +127,12 @@ elogd_parse_path(const char * __restrict  arg,
 	__elog_nonull(1, 2, 3) __elogd_nothrow __leaf __warn_result;
 
 extern int
+elogd_parse_rundir_path(const char * __restrict  arg,
+                        const char ** __restrict path,
+                        size_t * __restrict      length)
+	__elog_nonull(1, 2, 3) __elogd_nothrow __warn_result;
+
+extern int
 elogd_parse_user_name(const char * __restrict  arg,
                       const char ** __restrict user)
 	__elog_nonull(1, 2) __elogd_nothrow __leaf __warn_result;
@@ -184,5 +190,13 @@ elogd_log_fini(void)
 	if (elogd_logger)
 		elogd_destroy_logger(elogd_logger);
 }
+
+extern ssize_t
+elogd_make_path(char ** __restrict      result,
+                const char * __restrict dir_path,
+                size_t                  dir_len,
+                const char * __restrict file_name,
+                size_t                  file_len)
+	__elogd_nonull(1, 2, 4) __elogd_nothrow __leaf __warn_result;
 
 #endif /* _ELOGD_BUILTIN_H */

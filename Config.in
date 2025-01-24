@@ -73,13 +73,6 @@ config ELOGD_KERN_GROUP
 	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a
 	  member of this group.
 
-config ELOGD_KERN_SPATH
-	string "Kernel ring-buffer state tracking path"
-	default "/run/elogd/stat"
-	help
-	  Pathname to file hosting eLogd daemon internal state that tracks
-	  messages fetched from kernel ring-buffer.
-
 config ELOGD_KERN_FETCH
 	int "Number of kernel message fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX

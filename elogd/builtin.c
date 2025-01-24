@@ -56,6 +56,28 @@ elogd_parse_path(const char * __restrict  arg,
 }
 
 int
+elogd_parse_rundir_path(const char * __restrict  arg,
+                        const char ** __restrict path,
+                        size_t * __restrict      length)
+{
+	elogd_assert(arg);
+	elogd_assert(path);
+	elogd_assert(length);
+
+	ssize_t len;
+
+	len = elogd_parse_path(arg, "rundir directory", path);
+	if (len < 0)
+		return EXIT_FAILURE;
+
+	elogd_assert(len);
+
+	*length = (size_t)len;
+
+	return EXIT_SUCCESS;
+}
+
+int
 elogd_parse_user_name(const char * __restrict  arg,
                       const char ** __restrict user)
 {
@@ -116,4 +138,44 @@ elogd_parse_init(struct elog_parse * __restrict      parse,
 	elogd_pid = getpid();
 
 	elog_init_stdio_parse(parse, config, &dflt);
+}
+
+ssize_t
+elogd_make_path(char ** __restrict      result,
+                const char * __restrict dir_path,
+                size_t                  dir_len,
+                const char * __restrict file_name,
+                size_t                  file_len)
+{
+	elogd_assert(result);
+	elogd_assert((char *)result != dir_path);
+	elogd_assert((char *)result != file_name);
+	elogd_assert(dir_path != file_name);
+	elogd_assert(dir_len > 0);
+	elogd_assert(upath_validate_path(dir_path, dir_len + 1) > 0);
+	elogd_assert(file_len > 0);
+	elogd_assert(upath_is_file_name(file_name, file_len));
+
+	size_t len = dir_len + 1 + file_len;
+	char * path;
+
+	if ((len + 1) > PATH_MAX) {
+		elogd_err("failed to build pathname: %s (%d).",
+		          strerror(ENAMETOOLONG),
+		          ENAMETOOLONG);
+		return -ENAMETOOLONG;
+	}
+
+	path = malloc(len + 1);
+	if (!path)
+		return -ENOMEM;
+
+	memcpy(path, dir_path, dir_len);
+	path[dir_len] = '/';
+	memcpy(&path[dir_len + 1], file_name, file_len);
+	path[len] = '\0';
+
+	*result = path;
+
+	return (ssize_t)len;
 }

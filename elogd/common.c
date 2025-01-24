@@ -41,19 +41,26 @@ struct elogd_config elogd_conf = {
 #define ELOGD_INTLOG_FETCH STROLL_CONCAT(CONFIG_ELOGD_INTLOG_FETCH, U)
 	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,
 
-	.sock_path    = ELOGD_SOCK_PATH,
-	.sock_group   = ELOGD_SOCK_GROUP,
+	.rundir_path  = ELOGD_RUNSTATEDIR_PATH,
+	.rundir_len   = sizeof(ELOGD_RUNSTATEDIR_PATH) - 1,
+	.rundir_group = ELOGD_SOCK_GROUP,
+
+	.sock_on      = true,
 #define ELOGD_SOCK_FETCH   STROLL_CONCAT(CONFIG_ELOGD_SOCK_FETCH, U)
 	.sock_fetch   = ELOGD_SOCK_FETCH,
 
-	.kern_dpath   = ELOGD_KERN_DPATH,
-	.kern_spath   = CONFIG_ELOGD_KERN_SPATH,
+	.kern_on      = true,
 #define ELOGD_KERN_FETCH   STROLL_CONCAT(CONFIG_ELOGD_KERN_FETCH, U)
 	.kern_fetch   = ELOGD_KERN_FETCH,
 
 	/* POSIX message queue settings. */
 #if defined(CONFIG_ELOGD_MQUEUE)
-	.mqueue_name  = CONFIG_ELOGD_MQUEUE_NAME,
+	.mqueue_on    = true,
+#define ELOGD_MQUEUE_NAME \
+	compile_eval(sizeof(CONFIG_ELOGD_MQUEUE_NAME) > 1, \
+	             CONFIG_ELOGD_MQUEUE_NAME, \
+	             "CONFIG_ELOGD_MQUEUE_NAME string empty")
+	.mqueue_name  = ELOGD_MQUEUE_NAME,
 #define ELOGD_MQUEUE_FETCH STROLL_CONCAT(CONFIG_ELOGD_MQUEUE_FETCH, U)
 	.mqueue_fetch = ELOGD_MQUEUE_FETCH
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */

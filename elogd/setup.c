@@ -31,9 +31,9 @@ struct elogd_setup_conf {
 	elogd_assert(upwd_validate_group_name((_conf)->kern_group) > 0); \
 	elogd_assert(upwd_validate_user_name((_conf)->user) > 0); \
 	elogd_assert((_conf)->rundir_len > 0); \
-	elogd_assert(((size_t) \
-	              upath_validate_path_name((_conf)->rundir_path) == \
-	              (_conf)->rundir_len)); \
+	elogd_assert((size_t) \
+	             upath_validate_path_name((_conf)->rundir_path) == \
+	             (_conf)->rundir_len); \
 	elogd_assert(upwd_validate_group_name((_conf)->rundir_group) > 0); \
 	elogd_assert(upath_validate_path_name((_conf)->store_path) > 0); \
 	elogd_assert(upwd_validate_group_name((_conf)->store_group) > 0)
@@ -255,8 +255,8 @@ elogd_setup_dir(const char * __restrict path,
  *
  * This directory holds non-persistant (across reboots) / volatile daemon state
  * data files. These are by default:
- * - CONFIG_ELOGD_KERN_SPATH, the kernel log ring-buffer state tracking file ;
- * - CONFIG_ELOGD_SOCK_PATH, the UNIX named socket file allowing members of the
+ * - `stat', the kernel log ring-buffer state tracking file ;
+ * - `sock', the UNIX named socket file allowing members of the
  *   CONFIG_ELOGD_SOCK_GROUP group to post log messages ala syslog(3).
  */
 static
@@ -272,40 +272,6 @@ elogd_setup_rundir(void)
 	                       "run state");
 }
 
-static __elogd_nonull(1, 2, 4)
-ssize_t
-elogd_setup_make_path(char ** __restrict      result,
-                      const char * __restrict dir_path,
-                      size_t                  dir_len,
-                      const char * __restrict file_name,
-                      size_t                  file_len)
-{
-	elogd_assert(result);
-	elogd_assert(dir_len > 0);
-	elogd_assert(upath_validate_path(dir_path, dir_len + 1) > 0);
-	elogd_assert(file_len > 0);
-	elogd_assert(upath_is_file_name(file_name, file_len));
-
-	size_t  len = dir_len + 1 + file_len;
-	char *  path;
-
-	if ((len + 1) > PATH_MAX)
-		return -ENAMETOOLONG;
-
-	path = malloc(len + 1);
-	if (!path)
-		return -ENOMEM;
-
-	memcpy(path, dir_path, dir_len);
-	path[dir_len] = '/';
-	memcpy(&path[dir_len + 1], file_name, file_len);
-	path[len] = '\0';
-
-	*result = path;
-
-	return (ssize_t)len;
-}
-
 static
 int
 elogd_setup_devlog(void)
@@ -313,30 +279,34 @@ elogd_setup_devlog(void)
 	elogd_setup_assert_conf(&elogd_setup_the_conf);
 
 	char * target;
-	int    ret;
+	int    err;
 
-	if (elogd_setup_make_path(&target,
-	                          elogd_setup_the_conf.rundir_path,
-	                          elogd_setup_the_conf.rundir_len,
-	                          "sock",
-	                          sizeof("sock") - 1) <= 3)
-		return EXIT_FAILURE;
+	err = (int)elogd_make_path(&target,
+	                           elogd_setup_the_conf.rundir_path,
+	                           elogd_setup_the_conf.rundir_len,
+	                           "sock",
+	                           sizeof("sock") - 1);
+	if (err < 0)
+		goto err;
 
-	ret = enbox_make_slink("/dev/log", target, 0, 0);
-	if (ret) {
-		elogd_err("`/dev/log' symlink: failed to setup: %s (%d).",
-		          strerror(-ret),
-		          -ret);
-		ret = EXIT_FAILURE;
+	err = enbox_make_slink("/dev/log", target, 0, 0);
+	if (err)
 		goto free;
-	}
 
-	ret = EXIT_SUCCESS;
-
-free:
 	free(target);
 
-	return ret;
+	return EXIT_SUCCESS;
+
+free:
+#if defined(CONFIG_ELOGD_DEBUG)
+	free(target);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+err:
+	elogd_err("`/dev/log' symlink: failed to setup: %s (%d).",
+	          strerror(-err),
+	          -err);
+
+	return EXIT_FAILURE;
 }
 
 static
@@ -391,28 +361,6 @@ static void
 elogd_setup_show_usage(void)
 {
 	fprintf(stderr, USAGE, program_invocation_short_name);
-}
-
-static __elogd_nonull(1)
-int
-elogd_parse_rundir_path(const char * __restrict arg)
-{
-	elogd_assert(arg);
-
-	ssize_t len;
-
-	len = elogd_parse_path(arg,
-	                       "rundir directory",
-	                       &elogd_setup_the_conf.rundir_path);
-	if (len < 0)
-		return EXIT_FAILURE;
-
-	elogd_assert(len);
-
-	elogd_setup_the_conf.rundir_path = arg;
-	elogd_setup_the_conf.rundir_len = (size_t)len;
-
-	return EXIT_SUCCESS;
 }
 
 enum {
@@ -493,7 +441,10 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		case RUNDIR_PATH_OPT:
-			if (elogd_parse_rundir_path(optarg))
+			if (elogd_parse_rundir_path(
+				optarg,
+				&elogd_setup_the_conf.rundir_path,
+				&elogd_setup_the_conf.rundir_len))
 				goto out;
 			break;
 

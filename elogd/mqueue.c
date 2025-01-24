@@ -55,7 +55,7 @@ elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
                   struct elogd_line * __restrict         line)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(elogd_conf.mqueue_on);
 	elogd_mqueue_assert(mqueue);
 	elogd_assert(line);
 
@@ -122,7 +122,7 @@ elogd_mqueue_process(struct elogd_mqueue * __restrict      mqueue,
                      struct stroll_dlist_node * __restrict messages)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(elogd_conf.mqueue_on);
 	elogd_mqueue_assert(mqueue);
 	elogd_assert(messages);
 
@@ -166,7 +166,7 @@ elogd_mqueue_dispatch(struct upoll_worker * work,
                       const struct upoll *  poll __unused)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(elogd_conf.mqueue_on);
 	elogd_assert(work);
 	elogd_assert(state);
 	elogd_assert(!(state & EPOLLOUT));
@@ -243,7 +243,7 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
                   const struct upoll * __restrict  poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(elogd_conf.mqueue_on);
 	elogd_assert(mqueue);
 	elogd_assert(pipe);
 	elogd_assert(poll);
@@ -321,7 +321,7 @@ elogd_mqueue_close(const struct elogd_mqueue * __restrict mqueue,
                    const struct upoll * __restrict        poll __unused)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(elogd_conf.mqueue_on);
 	elogd_mqueue_assert(mqueue);
 	elogd_assert(poll);
 
@@ -343,7 +343,7 @@ elogd_mqueue_create(struct elogd_pipe * __restrict  pipe,
                     const struct upoll * __restrict poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(elogd_conf.mqueue_on);
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
@@ -373,7 +373,7 @@ elogd_mqueue_destroy(struct elogd_mqueue * __restrict mqueue,
                      const struct upoll * __restrict  poll)
 {
 	elogd_assert_conf();
-	elogd_assert(elogd_conf.mqueue_name);
+	elogd_assert(elogd_conf.mqueue_on);
 	elogd_mqueue_assert(mqueue);
 	elogd_assert(poll);
 

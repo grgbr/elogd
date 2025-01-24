@@ -311,7 +311,7 @@ elogd_pipe_create_mqueue(struct elogd_pipe * __restrict  pipe,
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
-	if (elogd_conf.mqueue_name) {
+	if (elogd_conf.mqueue_on) {
 		pipe->mqueue = elogd_mqueue_create(pipe, poll);
 		if (!pipe->mqueue)
 			return -errno;
@@ -379,7 +379,7 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 
 	elogd_queue_init(&pipe->outq, nr);
 
-	if (elogd_conf.sock_path) {
+	if (elogd_conf.sock_on) {
 		pipe->sock = elogd_sock_create(pipe, poll);
 		if (!pipe->sock) {
 			err = -errno;
@@ -389,7 +389,7 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 	else
 		pipe->sock = NULL;
 
-	if (elogd_conf.kern_dpath) {
+	if (elogd_conf.kern_on) {
 #warning Fix /dev/kmsg perms
 		pipe->kern = elogd_kern_create(pipe, poll);
 		if (!pipe->kern) {

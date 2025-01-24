@@ -25,25 +25,6 @@
 uid_t elogd_uid;
 gid_t elogd_gid;
 
-static __elogd_nonull(2, 3)
-int
-elogd_parse_opt_path(const char * __restrict  arg,
-                     const char * __restrict  kind,
-                     const char ** __restrict path)
-{
-	elogd_assert(kind);
-	elogd_assert(path);
-
-	if (arg) {
-		if (elogd_parse_path(arg, kind, path) < 0)
-			return EXIT_FAILURE;
-	}
-	else
-		*path = NULL;
-
-	return EXIT_SUCCESS;
-}
-
 static __elogd_nonull(1, 2, 3)
 int
 elogd_parse_fetch_count(const char * __restrict   arg,
@@ -77,21 +58,17 @@ static
 int
 elogd_parse_mqueue_name(const char * __restrict arg)
 {
-	if (arg) {
-		ssize_t ret;
+	ssize_t ret;
 
-		ret = umq_validate_name(arg);
-		if (ret < 0) {
-			elogd_early_log("invalid message queue name: %s (%d).",
-			                strerror((int)-ret),
-			                (int)-ret);
-			return EXIT_FAILURE;
-		}
-
-		elogd_conf.mqueue_name = arg;
+	ret = umq_validate_name(arg);
+	if (ret < 0) {
+		elogd_early_log("invalid message queue name: %s (%d).",
+		                strerror((int)-ret),
+		                (int)-ret);
+		return EXIT_FAILURE;
 	}
-	else
-		elogd_conf.mqueue_name = NULL;
+
+	elogd_conf.mqueue_name = arg;
 
 	return EXIT_SUCCESS;
 }
@@ -274,8 +251,8 @@ elogd_parse_delay(const char * __restrict   arg,
 #if defined(CONFIG_ELOGD_MQUEUE)
 
 #define USAGE_MQUEUE \
-"    --mq-name[=NAME]      -- when NAME is specified, use NAME as shared message\n" \
-"                             queue name, disable POSIX queue source otherwise\n" \
+"    --no-mq               -- disable POSIX message queue log source\n" \
+"    --mq-name[=NAME]      -- use NAME as POSIX message queue name\n" \
 "                             (defaults to `" CONFIG_ELOGD_MQUEUE_NAME "')\n" \
 "    --mq-fetch=COUNT      -- set maximum number of messages to fetch from\n" \
 "                             shared message queue to COUNT in a row with\n" \
@@ -321,22 +298,18 @@ elogd_parse_delay(const char * __restrict   arg,
 "    --store-size=SIZE     -- restrict output logging files size to SIZE bytes\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_SIZE_MIN) " <= SIZE <= " STROLL_STRING(CONFIG_ELOGD_SIZE_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SIZE) " bytes)\n" \
-"    --sock-path[=PATH]    -- when PATH is specified, use PATH as pathname to\n" \
-"                             syslog socket file, disable syslog service socket\n" \
-"                             otherwise\n" \
-"                             (defaults to `" ELOGD_SOCK_PATH "')\n" \
-"    --sock-group=GROUP    -- set syslog socket file group membership to GROUP\n" \
+"    --rundir-path=PATH    -- use PATH as pathname to directory where volatile\n" \
+"                             internal state data are stored\n" \
+"                             (defaults to `" ELOGD_RUNSTATEDIR_PATH "')\n" \
+"    --rundir-group=GROUP  -- set volatile internal state data directory group\n" \
+"                             membership to GROUP\n" \
 "                             (defaults to `" CONFIG_ELOGD_SOCK_GROUP "')\n" \
+"    --no-sock             -- disable syslog socket log source\n" \
 "    --sock-fetch=COUNT    -- set maximum number of messages to fetch from\n" \
 "                             syslog socket to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SOCK_FETCH) ")\n" \
-"    --kern-dpath[=PATH]   -- when PATH is specified, use PATH as pathname to\n" \
-"                             kernel ring-buffer device file, disable kernel log\n" \
-"                             messages retrieval otherwise\n" \
-"                             (defaults to `" ELOGD_KERN_DPATH "')\n" \
-"    --kern-spath=PATH     -- use PATH as pathname to private status file\n" \
-"                             (defaults to `" CONFIG_ELOGD_KERN_SPATH "')\n" \
+"    --no-kern             -- disable kernel log source\n" \
 "    --kern-fetch=COUNT    -- set maximum number of messages to fetch from\n" \
 "                             kernel ring-buffer to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
@@ -364,15 +337,16 @@ enum {
 	STORE_GROUP_OPT  = 1U << 7,
 	STORE_ROT_OPT    = 1U << 8,
 	STORE_SIZE_OPT   = 1U << 9,
-	SOCK_PATH_OPT    = 1U << 10,
-	SOCK_GROUP_OPT   = 1U << 11,
-	SOCK_FETCH_OPT   = 1U << 12,
-	KERN_DPATH_OPT   = 1U << 13,
-	KERN_SPATH_OPT   = 1U << 14,
+	RUNDIR_PATH_OPT  = 1U << 10,
+	RUNDIR_GROUP_OPT = 1U << 11,
+	NO_SOCK_OPT      = 1U << 12,
+	SOCK_FETCH_OPT   = 1U << 13,
+	NO_KERN_OPT      = 1U << 14,
 	KERN_FETCH_OPT   = 1U << 15,
 #if defined(CONFIG_ELOGD_MQUEUE)
-	MQUEUE_NAME_OPT  = 1U << 16,
-	MQUEUE_FETCH_OPT = 1U << 17,
+	NO_MQUEUE_OPT    = 1U << 16,
+	MQUEUE_NAME_OPT  = 1U << 17,
+	MQUEUE_FETCH_OPT = 1U << 18,
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 	HELP_OPT         = 'h',
 	MISSING_OPT      = ':',
@@ -405,14 +379,15 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			{ "store-group", required_argument, NULL, STORE_GROUP_OPT },
 			{ "store-rot",   required_argument, NULL, STORE_ROT_OPT },
 			{ "store-size",  required_argument, NULL, STORE_SIZE_OPT },
-			{ "sock-path",   optional_argument, NULL, SOCK_PATH_OPT },
-			{ "sock-group",  required_argument, NULL, SOCK_GROUP_OPT },
+			{ "rundir-path", required_argument, NULL, RUNDIR_PATH_OPT },
+			{ "rundir-group",required_argument, NULL, RUNDIR_GROUP_OPT },
+			{ "no-sock",     no_argument,       NULL, NO_SOCK_OPT },
 			{ "sock-fetch",  required_argument, NULL, SOCK_FETCH_OPT },
-			{ "kern-dpath",  optional_argument, NULL, KERN_DPATH_OPT },
-			{ "kern-spath",  required_argument, NULL, KERN_SPATH_OPT },
+			{ "no-kern",     no_argument,       NULL, NO_KERN_OPT },
 			{ "kern-fetch",  required_argument, NULL, KERN_FETCH_OPT },
 #if defined(CONFIG_ELOGD_MQUEUE)
-			{ "mq-name",     optional_argument, NULL, MQUEUE_NAME_OPT },
+			{ "no-mq",       no_argument,       NULL, NO_MQUEUE_OPT },
+			{ "mq-name",     required_argument, NULL, MQUEUE_NAME_OPT },
 			{ "mq-fetch",    required_argument, NULL, MQUEUE_FETCH_OPT },
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 			{ "help",        no_argument,       NULL, HELP_OPT },
@@ -449,7 +424,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 		case INT_FETCH_OPT:
 			if (elogd_parse_fetch_count(optarg,
 			                            "internal log",
-			                            &elogd_conf.sock_fetch))
+			                            &elogd_conf.intlog_fetch))
 				goto out;
 			break;
 
@@ -480,18 +455,22 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
-		case SOCK_PATH_OPT:
-			if (elogd_parse_opt_path(optarg,
-			                         "syslog socket file",
-			                         &elogd_conf.sock_path))
+		case RUNDIR_PATH_OPT:
+			if (elogd_parse_rundir_path(optarg,
+			                            &elogd_conf.rundir_path,
+			                            &elogd_conf.rundir_len))
 				goto out;
 			break;
 
-		case SOCK_GROUP_OPT:
+		case RUNDIR_GROUP_OPT:
 			if (elogd_parse_group_name(optarg,
-			                           "syslog socket file",
-			                           &elogd_conf.sock_group))
+			                           "rundir directory",
+			                           &elogd_conf.rundir_group))
 				goto out;
+			break;
+
+		case NO_SOCK_OPT:
+			elogd_conf.sock_on = false;
 			break;
 
 		case SOCK_FETCH_OPT:
@@ -501,19 +480,8 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
-		case KERN_DPATH_OPT:
-			if (elogd_parse_opt_path(
-				optarg,
-				"kernel ring-buffer device file",
-				&elogd_conf.kern_dpath))
-				goto out;
-			break;
-
-		case KERN_SPATH_OPT:
-			if (elogd_parse_path(optarg,
-			                     "private status file",
-			                     &elogd_conf.kern_spath) < 0)
-				goto out;
+		case NO_KERN_OPT:
+			elogd_conf.kern_on = false;
 			break;
 
 		case KERN_FETCH_OPT:
@@ -524,6 +492,10 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 #if defined(CONFIG_ELOGD_MQUEUE)
+		case NO_MQUEUE_OPT:
+			elogd_conf.mqueue_on = false;
+			break;
+
 		case MQUEUE_NAME_OPT:
 			if (elogd_parse_mqueue_name(optarg))
 				goto out;
@@ -562,11 +534,11 @@ elogd_parse_cmdln(int argc, char * const argv[])
 		goto usage;
 	}
 
-	if (!elogd_conf.kern_dpath &&
+	if (!elogd_conf.kern_on &&
 #if defined(CONFIG_ELOGD_MQUEUE)
-	    !elogd_conf.mqueue_name &&
+	    !elogd_conf.mqueue_on &&
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-	    !elogd_conf.sock_path) {
+	    !elogd_conf.sock_on) {
 		elogd_early_log("invalid configuration: "
 		                "all message sources disabled.");
 		goto out;
@@ -593,15 +565,15 @@ elogd_fetch_nr(void)
 {
 	unsigned int nr = 0;
 
-	if (elogd_conf.kern_dpath)
+	if (elogd_conf.kern_on)
 		nr += elogd_conf.kern_fetch;
 
 #if defined(CONFIG_ELOGD_MQUEUE)
-	if (elogd_conf.mqueue_name)
+	if (elogd_conf.mqueue_on)
 		nr += elogd_conf.mqueue_fetch;
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
-	if (elogd_conf.sock_path)
+	if (elogd_conf.sock_on)
 		nr += elogd_conf.sock_fetch;
 
 	if (elogd_conf.intlog.severity >= 0)
