@@ -36,14 +36,12 @@ struct elogd_config elogd_conf = {
 
 	.user         = ELOGD_USER,
 
-	.lock_path    = ELOGD_LOCK_PATH,
-
 #define ELOGD_INTLOG_FETCH STROLL_CONCAT(CONFIG_ELOGD_INTLOG_FETCH, U)
 	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,
 
 	.rundir_path  = ELOGD_RUNSTATEDIR_PATH,
 	.rundir_len   = sizeof(ELOGD_RUNSTATEDIR_PATH) - 1,
-	.rundir_group = ELOGD_SOCK_GROUP,
+	.rundir_group = ELOGD_RUNSTATEDIR_GROUP,
 
 	.sock_on      = true,
 #define ELOGD_SOCK_FETCH   STROLL_CONCAT(CONFIG_ELOGD_SOCK_FETCH, U)
@@ -53,7 +51,7 @@ struct elogd_config elogd_conf = {
 #define ELOGD_KERN_FETCH   STROLL_CONCAT(CONFIG_ELOGD_KERN_FETCH, U)
 	.kern_fetch   = ELOGD_KERN_FETCH,
 
-	/* POSIX message queue settings. */
+	/* POSIX message queue log settings. */
 #if defined(CONFIG_ELOGD_MQUEUE)
 	.mqueue_on    = true,
 #define ELOGD_MQUEUE_NAME \

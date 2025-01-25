@@ -57,9 +57,13 @@ do_run()
 	fi
 }
 
+# elogd-setup --rundir-path=/run/elogd --store-path=/tmp/elogd_test/
+# elogd --lock-path=/var/lock/elogd.lock --store-path=/tmp/elogd_test/messages --rundir-path=/run/elogd --no-mq --int-log=debug --verbose=debug
+
 init_cmds=\
 'touch /dev/mqueue/elogd_test &&'\
-' chmod 640 /dev/mqueue/elogd_test &&'\
+' chmod 240 /dev/mqueue/elogd_test &&'\
+' chown root:elogd /dev/mqueue/elogd_test &&'\
 ' echo 0 > /proc/sys/kernel/randomize_va_space'
 
 elogd_cmd=\

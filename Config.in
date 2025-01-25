@@ -10,6 +10,12 @@ config ELOGD_DEBUG
 	help
 	  Build eLogd with debugging support.
 
+config ELOGD_USER
+	string "runtime user name"
+	default "elogd"
+	help
+	  System user name which eLogd daemon will switch to at running time.
+
 config ELOGD_RUNSTATEDIR_ENVVAR
 	string
 	option env="RUNSTATEDIR"
@@ -18,11 +24,15 @@ config ELOGD_RUNSTATEDIR
 	string
 	default ELOGD_RUNSTATEDIR_ENVVAR
 
-config ELOGD_USER
-	string "runtime user name"
-	default "elogd"
+config ELOGD_RUNSTATEDIR_GROUP
+	string "Rundir directory group"
+	default "logpost"
 	help
-	  System user name which eLogd daemon will switch to at running time.
+	  Group assigned to directory where volatile internal state data are
+	  stored. This group will also be assigned to syslog source socket at
+	  creation time.
+	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a
+	  member of this group.
 
 config ELOGD_STDLOG_SEVERITY
 	int "STDIO logger severity"
@@ -41,7 +51,7 @@ config ELOGD_FETCH_MAX
 	int
 	default 1024
 
-menu "Internal logging source"
+menu "Internal log source"
 
 config ELOGD_INTLOG_SEVERITY
 	int "Internal logger severity"
@@ -62,7 +72,7 @@ config ELOGD_INTLOG_FETCH
 
 endmenu # menu "Internal logging source"
 
-menu "Kernel ring-buffer source"
+menu "Kernel log source"
 
 config ELOGD_KERN_GROUP
 	string "Kernel ring-buffer device group"
@@ -81,10 +91,10 @@ config ELOGD_KERN_FETCH
 	  Number of kernel messages that eLogd daemon will fetch in a single
 	  polling iteration.
 
-endmenu # menu "Kernel ring-buffer source"
+endmenu # menu "Kernel log source"
 
 menuconfig ELOGD_MQUEUE
-	bool "POSIX message queue"
+	bool "Message queue log source"
 	default y
 	help
 	  Enable support for fetching messages from POSIX named message queue.
@@ -93,7 +103,7 @@ menuconfig ELOGD_MQUEUE
 if ELOGD_MQUEUE
 
 config ELOGD_MQUEUE_NAME
-	string "Message queue service name"
+	string "Message queue name"
 	default "/init"
 	help
 	  Name of POSIX message queue exposed service.
@@ -132,14 +142,6 @@ endif # menuconfig ELOGD_MQUEUE
 
 menu "Syslog socket source"
 
-config ELOGD_SOCK_GROUP
-	string "Syslog socket group"
-	default "logpost"
-	help
-	  At creation time, syslog socket will be assigned to this group. Note
-	  that the system user selected by CONFIG_ELOGD_USER MUST be a member of
-	  this group.
-
 config ELOGD_SOCK_FETCH
 	int "Number of syslog message fetches"
 	range ELOGD_FETCH_MIN ELOGD_FETCH_MAX
@@ -176,13 +178,13 @@ config ELOGD_STORE_DPATH
 
 config ELOGD_STORE_FBASE
 	string "Output file basename"
-	default "elogd"
+	default "messages"
 	help
 	  Logging output file path basename.
 
 config ELOGD_STORE_GROUP
 	string "Output file group"
-	default "elogd"
+	default "logstore"
 	help
 	  At creation time, logging output files will be assigned to this group.
 	  Note that the system user selected by CONFIG_ELOGD_USER MUST be a

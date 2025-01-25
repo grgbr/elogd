@@ -405,10 +405,10 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 	elogd_assert(poll);
 
 	char *       path;
+	gid_t        gid;
 	int          err;
 	const char * msg;
 	mode_t       msk;
-	gid_t        gid = elogd_gid;
 
 	err = (int)elogd_make_path(&path,
 	                           elogd_conf.rundir_path,
@@ -419,6 +419,16 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 		return err;
 
 	elogd_debug("initializing '%s' syslog service...", path);
+
+	err = upwd_get_gid_byname(elogd_conf.rundir_group, &gid);
+	if (err) {
+		elogd_err("cannot initialize syslog service: "
+		          "'%s': invalid socket group: %s (%d).",
+		          elogd_conf.rundir_group,
+		          strerror(-err),
+		          -err);
+		goto free;
+	}
 
 	err = unsk_dgram_svc_open(&sock->unsk, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (err) {
@@ -435,16 +445,9 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 		goto close;
 	}
 
-	err = upwd_get_gid_byname(elogd_conf.rundir_group, &gid);
-	if (err)
-		elogd_warn("'%s': unknown logging socket group, "
-		           "using default GID %d.",
-		           elogd_conf.rundir_group,
-		           gid);
-
 	err = upath_chown(path, elogd_uid, gid);
 	if (err) {
-		msg = "owner / group membership setup failed";
+		msg = "ownership setup failed";
 		goto close;
 	}
 
@@ -474,6 +477,7 @@ err:
 	          msg,
 	          strerror(-err),
 	          -err);
+free:
 #if defined(CONFIG_ELOGD_DEBUG)
 	free(path);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */

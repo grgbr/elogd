@@ -17,14 +17,9 @@ elogd_log_the_intern(void)
 	__elogd_nothrow __leaf __warn_result;
 
 extern int
-elogd_log_parse_std(struct elog_parse * __restrict parse,
-                    const char * __restrict        arg)
-	__elogd_nonull(1) __elogd_nothrow __leaf __warn_result;
-
-extern int
-elogd_log_parse_intern(struct elog_parse * __restrict parse,
-                       const char * __restrict        arg)
-	__elogd_nonull(1) __elogd_nothrow __leaf __warn_result;
+elogd_log_parse_intern(const char * __restrict        arg,
+                       struct elog_parse * __restrict parse)
+	__elogd_nonull(1, 2) __elogd_nothrow __leaf __warn_result;
 
 extern void
 elogd_log_init_parse(struct elog_parse * __restrict stdlog_parse,

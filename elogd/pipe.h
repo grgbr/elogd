@@ -45,10 +45,10 @@ struct elogd_pipe {
 	struct elogd_queue    outq;
 	/* Syslog socket based service pollable message source. */
 	struct elogd_sock *   sock;
-	/* Kernel ring-buffer pollable message source. */
+	/* Kernel log ring-buffer pollable message source. */
 	struct elogd_kern *   kern;
 #if defined(CONFIG_ELOGD_MQUEUE)
-	/* POSIX message queue based service pollable message source. */
+	/* POSIX message queue log pollable message source. */
 	struct elogd_mqueue * mqueue;
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 	/* Internal message source. */

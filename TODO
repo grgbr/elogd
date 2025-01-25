@@ -1,14 +1,10 @@
 Fixes
 =====
 
-* refine std-log / int-log options handling
+* refine elogd_secure(): allow syslog cap...
+* rate limit internal log messages
 * implement elogd fallback timeout in case of store write error -ENOSPC....
-* Review kernel device file capability requirements (see kern.c)
 * Move to slist impl
-* Check file system permissions for mqueue / syslog socket and /dev/kmsg. Review
-  with respect to CONFIG_ELOGD_STORE_GROUP and CONFIG_ELOGD_USER build / command
-  line options !
-* Return error upon unknown user group at file creations ??
 
 Documentation
 =============

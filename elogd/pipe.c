@@ -390,7 +390,6 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 		pipe->sock = NULL;
 
 	if (elogd_conf.kern_on) {
-#warning Fix /dev/kmsg perms
 		pipe->kern = elogd_kern_create(pipe, poll);
 		if (!pipe->kern) {
 			err = -errno;

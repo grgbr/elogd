@@ -1,6 +1,8 @@
 #include "builtin.h"
 #include <utils/path.h>
 #include <utils/pwd.h>
+#include <utils/file.h>
+#include <sys/file.h>
 
 pid_t         elogd_pid = -1;
 struct elog * elogd_logger;
@@ -14,6 +16,11 @@ elogd_parse_stdlog(const char * __restrict             arg,
 	elogd_assert(arg);
 	elogd_assert(parse);
 	elogd_assert(config);
+
+	if (!strcmp(arg, "none")) {
+		config->super.severity = -1;
+		return EXIT_SUCCESS;
+	}
 
 	if (elog_parse_stdio_severity(parse, config, arg)) {
 		elogd_early_log("%s.", parse->error);
@@ -179,3 +186,85 @@ elogd_make_path(char ** __restrict      result,
 
 	return (ssize_t)len;
 }
+
+int
+elogd_make_lock_path(char ** __restrict      result,
+                     const char * __restrict path,
+                     size_t                  length)
+{
+	elogd_assert(result);
+	elogd_assert((char *)result != path);
+	elogd_assert(length);
+	elogd_assert((size_t)upath_validate_path_name(path) == length);
+
+	ssize_t ret;
+
+	ret = elogd_make_path(result, path, length, "lock", sizeof("lock") - 1);
+	if (ret < 0)
+		return (int)ret;
+
+	elogd_assert(ret >= (ssize_t)(sizeof("/lock") - 1));
+
+	return 0;
+}
+
+static int elogd_lock_fd = -1;
+
+int
+elogd_lock(const char * __restrict path)
+{
+	elogd_assert(upath_validate_path_name(path) > 0);
+
+	int          err;
+	const char * msg;
+
+	elogd_lock_fd = ufile_new(path,
+	                          O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NOFOLLOW,
+	                          S_IRUSR);
+	if (elogd_lock_fd < 0) {
+		err = elogd_lock_fd;
+		msg = "open failed";
+		goto err;
+	}
+
+	if (flock(elogd_lock_fd, LOCK_EX | LOCK_NB)) {
+		err = -errno;
+		msg = "lock failed";
+		goto close;
+	}
+
+	return 0;
+
+close:
+#if defined(CONFIG_ELOGD_DEBUG)
+	ufile_close(elogd_lock_fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+err:
+	elogd_err("cannot acquire lock file: '%s': %s: %s (%d).",
+	          path,
+	          msg,
+	          strerror(-err),
+	          -err);
+
+	return err;
+}
+
+#if defined(CONFIG_ELOGD_DEBUG)
+
+void
+elogd_unlock(void)
+{
+	elogd_assert(elogd_lock_fd >= 0);
+
+	ufile_close(elogd_lock_fd);
+}
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+void
+elogd_unlock(void)
+{
+	elogd_assert(elogd_lock_fd >= 0);
+}
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */

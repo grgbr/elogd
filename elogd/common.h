@@ -18,7 +18,6 @@
 #include <linux/taskstats.h>
 
 #define ELOGD_SOCK_PATH ELOGD_RUNSTATEDIR_PATH "/sock"
-#define ELOGD_LOCK_PATH CONFIG_ELOGD_RUNSTATEDIR "/lock/elogd"
 
 extern uid_t elogd_uid;
 extern gid_t elogd_gid;
@@ -69,9 +68,6 @@ struct elogd_config {
 	/* Username eLogd switches to at initialization time. */
 	const char *           user;
 
-	/* Pathname to eLogd advisory lock file. */
-	const char *           lock_path;
-
 	/* Console / stdio logging settings. */
 	struct elog_stdio_conf stdlog;
 
@@ -97,7 +93,7 @@ struct elogd_config {
 
 	/* Kernel log source enabled ? */
 	bool                   kern_on;
-	/* Kernel ring-buffer source queue depth. */
+	/* Kernel log ring-buffer source queue depth. */
 	unsigned int           kern_fetch;
 
 #if defined(CONFIG_ELOGD_MQUEUE)
@@ -105,7 +101,7 @@ struct elogd_config {
 	bool                   mqueue_on;
 	/* POSIX message queue name. */
 	const char *           mqueue_name;
-	/* POSIX message source queue depth. */
+	/* POSIX message log source queue depth. */
 	unsigned int           mqueue_fetch;
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 };
@@ -125,8 +121,6 @@ struct elogd_config {
 	elogd_assert(upwd_validate_group_name(elogd_conf.store_group) > 0); \
 	\
 	elogd_assert(upwd_validate_user_name(elogd_conf.user) > 0); \
-	\
-	elogd_assert(upath_validate_path_name(elogd_conf.lock_path) > 0); \
 	\
 	elogd_assert((elogd_conf.stdlog.super.severity == -1) ^ \
 	             !(elogd_conf.stdlog.super.severity & ~LOG_PRIMASK)); \

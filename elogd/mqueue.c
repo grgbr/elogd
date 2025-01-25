@@ -13,7 +13,7 @@
 #include <utils/poll.h>
 
 /*
- * POSIX queue message source.
+ * POSIX message queue log message source.
  *
  * Meant to retrieve messages from a POSIX message queue in a epoll(7)'able
  * manner.
@@ -21,19 +21,19 @@
  * See mq_overview(7).
  */
 struct elogd_mqueue {
-	/* Queue of fetched POSIX queue messages. */
+	/* Queue of fetched POSIX queue log messages. */
 	struct elogd_queue  queue;
 	/*
 	 * upoll worker used to trigger fetches when new messages are available
-	 * from a POSIX queue.
+	 * from a POSIX message queue log.
 	 */
 	struct upoll_worker work;
 	/*
-	 * high-level elogd object to be nofified when new POSIX queue
-	 * messages have been fetched.
+	 * high-level elogd object to be nofified when new POSIX message queue
+	 * log messages have been fetched.
 	 */
 	struct elogd_pipe * pipe;
-	/* File descriptor pointing to POSIX queue. */
+	/* File descriptor pointing to POSIX message queue. */
 	mqd_t               fd;
 };
 
@@ -149,7 +149,7 @@ elogd_mqueue_process(struct elogd_mqueue * __restrict      mqueue,
 	                                 elogd_queue_line_cmp,
 	                                 NULL);
 #else
-#error Unsupported POSIX message queue reordering strategy !
+#error Unsupported Message queue log reordering strategy !
 #endif
 	return 0;
 
@@ -271,10 +271,15 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
 		goto close;
 	}
 
-	if (((st.st_mode & (ALLPERMS & ~(S_IRUSR | S_IWUSR))) != S_IRGRP) ||
-	    (st.st_uid != 0)) {
+	if (st.st_uid) {
 		err = -EPERM;
-		msg = "unexpected file attributes";
+		msg = "unexpected ownership";
+		goto close;
+	}
+
+	if (st.st_mode & (~((mode_t)ALLPERMS) | (mode_t)S_IRWXO)) {
+		err = -ENODEV;
+		msg = "unexpected permission mode bits";
 		goto close;
 	}
 

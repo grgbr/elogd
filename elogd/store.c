@@ -42,7 +42,7 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 	struct stat  st;
 	int          err;
 	const char * msg;
-	gid_t        gid = elogd_gid;
+	gid_t        gid;
 
 #define ELOGD_STORE_FILE_FLAGS \
 	(O_WRONLY | O_APPEND | O_CLOEXEC | O_NOATIME | O_NOFOLLOW)
@@ -65,25 +65,25 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 	}
 	if (!S_ISREG(st.st_mode)) {
 		err = -EPERM;
-		msg = "invalid file type";
+		msg = "invalid type";
 		goto close;
 	}
 	if ((size_t)st.st_size > elogd_conf.store_size) {
-		msg = "file size too large";
+		msg = "size too large";
 		goto close;
 	}
 
-	if (elogd_conf.store_group) {
-		err = upwd_get_gid_byname(elogd_conf.store_group, &gid);
-		if (err)
-			elogd_warn("'%s': unknown logging file group, "
-			           "using default GID %d.",
-			           elogd_conf.store_group,
-			           gid);
+	err = upwd_get_gid_byname(elogd_conf.store_group, &gid);
+	if (err) {
+		elogd_warn("'%s': unknown log store group, "
+		           "using default GID %d.",
+		           elogd_conf.store_group,
+		           gid);
+		gid = elogd_gid;
 	}
 	err = ufile_fchown(store->fd, elogd_uid, gid);
 	if (err) {
-		msg = "owner / group membership setup failed";
+		msg = "ownership setup failed";
 		goto close;
 	}
 
@@ -101,7 +101,7 @@ close:
 	ufile_close(store->fd);
 	store->fd = -1;
 err:
-	elogd_warn("'%s/%s': cannot instantiate logging file: %s: %s (%d).",
+	elogd_warn("'%s/%s': cannot instantiate log file: %s: %s (%d).",
 	           elogd_conf.store_dpath,
 	           store->base,
 	           msg,
@@ -129,7 +129,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 
 	err = ufile_sync(store->fd);
 	if (err)
-		elogd_warn("'%s/%s': cannot sync logging file: %s (%d).",
+		elogd_warn("'%s/%s': cannot sync log file: %s (%d).",
 		           elogd_conf.store_dpath,
 		           orig,
 		           strerror(-err),
@@ -143,7 +143,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 		err = ufile_rename_at(store->dir, orig, store->dir, nevv, 0);
 		if (err)
 			elogd_warn("'%s/%s': "
-			           "cannot rotate logging file: %s (%d).",
+			           "cannot rotate log file: %s (%d).",
 			           elogd_conf.store_dpath,
 			           orig,
 			           strerror(-err),
@@ -157,7 +157,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 	/* Just in case we failed to move primary logging output file. */
 	err = ufile_unlink_at(store->dir, orig);
 	if (err && (err != -ENOENT))
-		elogd_warn("'%s/%s': cannot unlink logging file: %s (%d).",
+		elogd_warn("'%s/%s': cannot unlink log file: %s (%d).",
 		           elogd_conf.store_dpath,
 		           orig,
 		           strerror(-err),
@@ -167,7 +167,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 	err = ufile_close(store->fd);
 	if (err)
 		elogd_warn("'%s/%s': "
-		           "failed to close logging file: %s (%d).",
+		           "failed to close log file: %s (%d).",
 		           elogd_conf.store_dpath,
 		           orig,
 		           strerror(-err),
@@ -182,7 +182,7 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 	 */
 	err = udir_sync(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot sync logging directory: %s (%d).",
+		elogd_warn("'%s': cannot sync log directory: %s (%d).",
 		           elogd_conf.store_dpath,
 		           strerror(-err),
 		           -err);
@@ -358,13 +358,70 @@ elogd_store_write(struct elogd_store * __restrict store,
 	}
 
 	if (ret)
-		elogd_warn("'%s/%s': write to logging store failed: %s (%d).",
+		elogd_warn("'%s/%s': write to log store failed: %s (%d).",
 		           elogd_conf.store_dpath,
 		           store->base,
 		           strerror(-ret),
 		           -ret);
 
 	return ret;
+}
+
+static __elogd_nonull(1)
+int
+elogd_store_open_dir(struct elogd_store * __restrict store)
+{
+	elogd_assert_conf();
+	elogd_assert(store);
+
+	int          fd;
+	int          err;
+	const char * msg;
+	struct stat  st;
+
+	fd = udir_open(elogd_conf.store_dpath,
+	               O_CLOEXEC | O_NOATIME | O_NOFOLLOW);
+	if (fd < 0) {
+		err =  fd;
+		msg = "open failed";
+		goto err;
+	}
+
+	err = ufile_fstat(fd, &st);
+	if (err) {
+		msg = "status retrieval failed";
+		goto close;
+	}
+
+	if (st.st_uid != elogd_uid) {
+		err = -EPERM;
+		msg = "unexpected ownership";
+		goto close;
+	}
+
+	if ((st.st_mode & ALLPERMS & (~((mode_t)ACCESSPERMS) | S_IRWXO)) ||
+	    ((st.st_mode & S_IRWXU) != S_IRWXU)) {
+		err = -EPERM;
+		msg = "unexpected permission mode bits";
+		goto close;
+	}
+
+	store->dir = fd;
+
+	return 0;
+
+close:
+#if defined(CONFIG_ELOGD_DEBUG)
+	udir_close(fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+err:
+	elogd_err("cannot initialize log store directory: '%s': %s: %s (%d).",
+	          elogd_conf.store_dpath,
+	          msg,
+	          strerror(-err),
+	          -err);
+
+	return err;
 }
 
 int
@@ -377,16 +434,11 @@ elogd_store_open(struct elogd_store * __restrict store)
 	int            err;
 	const char *   msg;
 
-	elogd_debug("initializing '%s' message store...",
-	            elogd_conf.store_dpath);
+	elogd_debug("initializing '%s' log store...", elogd_conf.store_dpath);
 
-	store->dir = udir_open(elogd_conf.store_dpath,
-	                       O_CLOEXEC | O_NOATIME | O_NOFOLLOW);
-	if (store->dir < 0) {
-		err = store->dir;
-		msg = "open failed";
-		goto err;
-	}
+	err = elogd_store_open_dir(store);
+	if (err)
+		return err;
 
 	if (fstatvfs(store->dir, &stat) < 0) {
 		err = -errno;
@@ -394,7 +446,7 @@ elogd_store_open(struct elogd_store * __restrict store)
 		elogd_assert(err != -EFAULT);
 		elogd_assert(err != -EINTR);
 
-		msg = "logging filesystem status retrieval failed";
+		msg = "filesystem status retrieval failed";
 		goto close_dir;
 	}
 
@@ -432,15 +484,17 @@ elogd_store_open(struct elogd_store * __restrict store)
 	                                   (size_t)stat.f_frsize);
 	elogd_conf.store_size *= stat.f_frsize;
 
-	elogd_info("'%s' logging store initialized.",
+	elogd_info("'%s' log store initialized.",
 	           elogd_conf.store_dpath);
 
 	return 0;
 
 close_dir:
+#if defined(CONFIG_ELOGD_DEBUG)
 	udir_close(store->dir);
-err:
-	elogd_err("cannot initialize logging store: '%s': %s: %s (%d).",
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
+	elogd_err("cannot initialize log store: '%s': %s: %s (%d).",
 	          elogd_conf.store_dpath,
 	          msg,
 	          strerror(-err),
@@ -460,8 +514,7 @@ elogd_store_close(struct elogd_store * __restrict store)
 	if (store->fd >= 0) {
 		err = ufile_sync(store->fd);
 		if (err)
-			elogd_warn("'%s/%s': "
-			           "cannot sync logging file: %s (%d).",
+			elogd_warn("'%s/%s': cannot sync log file: %s (%d).",
 			           elogd_conf.store_dpath,
 			           store->base,
 			           strerror(-err),
@@ -469,8 +522,7 @@ elogd_store_close(struct elogd_store * __restrict store)
 
 		err = ufile_close(store->fd);
 		if (err)
-			elogd_warn("'%s/%s': cannot close logging file: "
-			           "%s (%d).",
+			elogd_warn("'%s/%s': cannot close log file: %s (%d).",
 			           elogd_conf.store_dpath,
 			           store->base,
 			           strerror(-err),
@@ -483,14 +535,14 @@ elogd_store_close(struct elogd_store * __restrict store)
 
 	err = udir_sync(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot sync logging directory: %s (%d).",
+		elogd_warn("'%s': cannot sync log directory: %s (%d).",
 		           elogd_conf.store_dpath,
 		           strerror(-err),
 		           -err);
 
 	err = udir_close(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot close logging directory: %s (%d).",
+		elogd_warn("'%s': cannot close log directory: %s (%d).",
 		           elogd_conf.store_dpath,
 		           strerror(-err),
 		           -err);

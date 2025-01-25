@@ -20,43 +20,30 @@ elogd_log_the_intern(void)
 }
 
 int
-elogd_log_parse_std(struct elog_parse * __restrict parse,
-                    const char * __restrict        arg)
-{
-	elogd_assert(elogd_pid > 0);
-	elogd_assert(parse);
-
-	if (arg)
-		return elogd_parse_stdlog(arg, parse, &elogd_conf.stdlog);
-
-	elogd_conf.stdlog.super.severity = -1;
-
-	return 0;
-}
-
-int
-elogd_log_parse_intern(struct elog_parse * __restrict parse,
-                       const char * __restrict        arg)
+elogd_log_parse_intern(const char * __restrict        arg,
+                       struct elog_parse * __restrict parse)
 
 {
 	elogd_assert(elogd_pid > 0);
+	elogd_assert(arg);
 	elogd_assert(parse);
 
-	if (arg) {
-		if (elog_parse_severity(parse, &elogd_conf.intlog, arg)) {
-			elogd_early_log("%s.", parse->error);
-			return EXIT_FAILURE;
-		}
+	if (!strcmp(arg, "none")) {
+		elogd_conf.intlog.severity = -1;
+		return EXIT_SUCCESS;
+	}
+
+	if (elog_parse_severity(parse, &elogd_conf.intlog, arg)) {
+		elogd_early_log("%s.", parse->error);
+		return EXIT_FAILURE;
+	}
 
 #if !defined(CONFIG_ELOGD_DEBUG)
-		if (elogd_conf.intlog.severity >= ELOG_DEBUG_SEVERITY) {
-			elogd_early_log("unexpected internal log severity.");
-			return EXIT_FAILURE;
-		}
-#endif /* !defined(CONFIG_ELOGD_DEBUG) */
+	if (elogd_conf.intlog.severity >= ELOG_DEBUG_SEVERITY) {
+		elogd_early_log("unexpected internal log severity.");
+		return EXIT_FAILURE;
 	}
-	else
-		elogd_conf.intlog.severity = -1;
+#endif /* !defined(CONFIG_ELOGD_DEBUG) */
 
 	return EXIT_SUCCESS;
 }
@@ -93,8 +80,6 @@ elogd_log_enable(void)
 {
 	elogd_assert_conf();
 	elogd_assert(elogd_pid > 0);
-	elogd_assert((elogd_conf.stdlog.super.severity >= 0) ||
-	             (elogd_conf.intlog.severity >= 0));
 
 	elog_setup(ELOG_DFLT_TAG, elogd_pid);
 

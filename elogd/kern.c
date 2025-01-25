@@ -15,37 +15,35 @@
 #include <sys/mman.h>
 
 /*
- * Kernel (logging) ring-buffer message source.
+ * Kernel log ring-buffer message source.
  *
- * Meant to retrieve messages from the kernel ring-buffer in a epoll(7)'able
- * manner.
+ * Meant to retrieve messages from the kernel log in a epoll(7)'able manner.
  *
  * See <linux>/doc/Documentation/ABI/testing/dev-kern
  */
 struct elogd_kern {
-	/* Queue of fetched kernel ring-buffer messages. */
+	/* Queue of fetched kernel log messages. */
 	struct elogd_queue  queue;
 	/*
-	 * upoll worker used to trigger fetches when new kernel ring-buffer
-	 * messages are available.
+	 * upoll worker used to trigger fetches when new kernel log messages are
+	 * available.
 	 */
 	struct upoll_worker work;
 	/*
-	 * high-level elogd object to be nofified when new kernel ring-buffer
-	 * messages have been fetched.
+	 * high-level elogd object to be nofified when new kernel log messages
+	 * have been fetched.
 	 */
 	struct elogd_pipe * pipe;
-	/* File descriptor pointing to "/dev/kern" kernel ring-buffer. */
+	/* File descriptor pointing to "/dev/kmsg" kernel log device. */
 	int                 dev_fd;
 	/*
 	 * Pointer to location in elogd status file (see `stat_fd' below) where
-	 * last retrieved kernel ring-buffer message's sequence number is
-	 * stored.
+	 * last retrieved kernel log message's sequence number is stored.
 	 */
 	uint64_t *          seqno;
 	/*
 	 * File descriptor pointing to elogd status file allowing to track
-	 * kernel ring-buffer message sequence number (see `seqno' above).
+	 * kernel log message sequence number (see `seqno' above).
 	 *
 	 * This 64-bits sequence number allows to reconnect to the buffer and
 	 * reconstruct the read position if needed, e.g after an elogd shutdown
@@ -99,7 +97,7 @@ elogd_kern_read(const struct elogd_kern * __restrict kern,
 	else if (!ret || (ret == -EAGAIN))
 		return -EAGAIN;
 
-	elogd_warn("kernel ring-buffer read failed: %s (%d).",
+	elogd_warn("kernel log read failed: %s (%d).",
 	           strerror((int)-ret),
 	           (int)-ret);
 
@@ -286,8 +284,8 @@ elogd_kern_parse(struct elogd_line * __restrict line,
 		goto err;
 
 	/*
-	 * TODO ?: kernel ring-buffer renders special printable characters as
-	 * escaped hexadecimal sequences (such as `\x09' for a TAB). Most
+	 * TODO ?: kernel log ring-buffer renders special printable characters
+	 * as escaped hexadecimal sequences (such as `\x09' for a TAB). Most
 	 * notable example of this looks like:
 	 *   `rcu: \x09RCU restricting CPUs from NR_CPUS=8192 to nr_cpu_ids=8'
 	 *
@@ -316,7 +314,7 @@ STROLL_RESTORE_WARN
 	return 0;
 
 err:
-	elogd_warn("kernel ring-buffer parsing failed: unexpected message.");
+	elogd_warn("kernel log parsing failed: unexpected message.");
 
 	return -EINVAL;
 }
@@ -455,6 +453,78 @@ release:
 
 static __elogd_nonull(1)
 int
+elogd_kern_open_dev(struct elogd_kern * __restrict kern)
+{
+	elogd_assert_conf();
+	elogd_assert(elogd_conf.kern_on);
+	elogd_assert(kern);
+
+	int          fd;
+	struct stat  st;
+	int          err;
+	const char * msg;
+
+	/*
+	 * This will require CAP_SYSLOG or CAP_SYS_ADMIN capability if kernel is
+	 * built with CONFIG_SECURITY_DMESG_RESTRICT enabled !!
+	 */
+	fd = ufd_open(ELOGD_KERN_DPATH,
+	              O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NOFOLLOW |
+	              O_NONBLOCK);
+	if (fd < 0) {
+		err = fd;
+		msg = "open failed";
+		goto err;
+	}
+
+	err = ufd_fstat(fd, &st);
+	if (err) {
+		msg = "status retrieval failed";
+		goto close;
+	}
+
+	if (!S_ISCHR(st.st_mode) ||
+	    (major(st.st_rdev) != ELOGD_KERN_MAJOR) ||
+	    (minor(st.st_rdev) != ELOGD_KERN_MINOR)) {
+		err = -ENODEV;
+		msg = "invalid type";
+		goto close;
+	}
+
+	if (st.st_uid) {
+		err = -EPERM;
+		msg = "unexpected ownership";
+		goto close;
+	}
+
+	if (st.st_mode & ALLPERMS & (~((mode_t)ACCESSPERMS) | S_IRWXO)) {
+		err = -ENODEV;
+		msg = "unexpected permission mode bits";
+		goto close;
+	}
+
+	err = (int)ufd_lseek(fd, 0, SEEK_DATA);
+	elogd_assert(!err);
+
+	kern->dev_fd = fd;
+
+	return 0;
+
+close:
+#if defined(CONFIG_ELOGD_DEBUG)
+	ufd_close(fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+err:
+	elogd_err("'" ELOGD_KERN_DPATH "': %s: %s (%d).",
+	          msg,
+	          strerror(-err),
+	          -err);
+
+	return err;
+}
+
+static __elogd_nonull(1)
+int
 elogd_kern_open_stat(struct elogd_kern * __restrict kern)
 {
 	elogd_assert_conf();
@@ -492,12 +562,21 @@ elogd_kern_open_stat(struct elogd_kern * __restrict kern)
 		goto close;
 	}
 
-	if (!S_ISREG(st.st_mode) ||
-	    ((st.st_mode & (S_IRUSR | S_IWUSR)) != (S_IRUSR | S_IWUSR)) ||
-	    (st.st_uid != elogd_uid) ||
-	    (st.st_gid != elogd_gid)) {
+	if (!S_ISREG(st.st_mode)) {
+		err = -ENODEV;
+		msg = "invalid type";
+		goto close;
+	}
+
+	if ((st.st_uid != elogd_uid) || (st.st_gid != elogd_gid)) {
 		err = -EPERM;
-		msg = "unexpected file attributes";
+		msg = "unexpected ownership";
+		goto close;
+	}
+
+	if ((st.st_mode & ALLPERMS) != (S_IRUSR | S_IWUSR)) {
+		err = -EPERM;
+		msg = "unexpected permission mode bits";
 		goto close;
 	}
 
@@ -537,7 +616,9 @@ elogd_kern_open_stat(struct elogd_kern * __restrict kern)
 	return 0;
 
 close:
+#if defined(CONFIG_ELOGD_DEBUG)
 	ufile_close(fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
 	elogd_err("'%s': %s: %s (%d).",
 	          path,
@@ -563,22 +644,14 @@ elogd_kern_open(struct elogd_kern * __restrict  kern,
 	elogd_assert(pipe);
 	elogd_assert(poll);
 
-	int          fd;
 	int          err;
 	const char * msg;
 
-	elogd_debug("initializing kernel ring-buffer...");
+	elogd_debug("initializing kernel log...");
 
-	/*
-	 * This will require CAP_SYSLOG or CAP_SYS_ADMIN capability if kernel is
-	 * built with CONFIG_SECURITY_DMESG_RESTRICT enabled !!
-	 */
-	fd = ufd_open(ELOGD_KERN_DPATH,
-	              O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NOFOLLOW |
-	              O_NONBLOCK);
-	if (fd < 0) {
-		err = fd;
-		msg = "'/dev/kern': open failed";
+	err = elogd_kern_open_dev(kern);
+	if (err) {
+		msg = "cannot open device";
 		goto err;
 	}
 
@@ -590,7 +663,7 @@ elogd_kern_open(struct elogd_kern * __restrict  kern,
 
 	kern->work.dispatch = elogd_kern_dispatch;
 	err = upoll_register(poll,
-	                     fd,
+	                     kern->dev_fd,
 	                     EPOLLIN,
 	                     &kern->work);
 	if (err) {
@@ -598,12 +671,7 @@ elogd_kern_open(struct elogd_kern * __restrict  kern,
 		goto close_stat;
 	}
 
-	err = (int)ufd_lseek(fd, 0, SEEK_DATA);
-	elogd_assert(!err);
-
 	elogd_queue_init(&kern->queue, elogd_conf.kern_fetch);
-	kern->dev_fd = fd;
-
 	kern->pipe = pipe;
 
 	if (*kern->seqno) {
@@ -617,21 +685,25 @@ elogd_kern_open(struct elogd_kern * __restrict  kern,
 	if (elogd_queue_busy_count(&kern->queue))
 		elogd_pipe_on_alive(pipe, &kern->queue);
 
-	elogd_info("kernel ring-buffer initialized.");
+	elogd_info("kernel log initialized.");
 
 	return 0;
 
 close_poll:
-	upoll_unregister(poll, fd);
+#if defined(CONFIG_ELOGD_DEBUG)
+	upoll_unregister(poll, kern->dev_fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 close_stat:
+#if defined(CONFIG_ELOGD_DEBUG)
 	munmap(kern->seqno, sizeof(*kern->seqno));
 	ufile_close(kern->stat_fd);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
 close_dev:
 #if defined(CONFIG_ELOGD_DEBUG)
-	ufd_close(fd);
+	ufd_close(kern->dev_fd);
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 err:
-	elogd_err("cannot initialize kernel ring-buffer: %s: %s (%d).",
+	elogd_err("cannot initialize kernel log: %s: %s (%d).",
 	          msg,
 	          strerror(-err),
 	          -err);
@@ -649,7 +721,7 @@ elogd_kern_close(const struct elogd_kern * __restrict kern,
 	elogd_kern_assert(kern);
 	elogd_assert(poll);
 
-	elogd_debug("closing kernel ring-buffer...");
+	elogd_debug("closing kernel log...");
 
 #if defined(CONFIG_ELOGD_DEBUG)
 	upoll_unregister(poll, kern->dev_fd);

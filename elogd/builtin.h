@@ -17,10 +17,18 @@
 #include <stdio.h>
 
 /* Pathname to directory where volatile internal state data are stored. */
-#define ELOGD_RUNSTATEDIR_PATH CONFIG_ELOGD_RUNSTATEDIR "/elogd"
+#define ELOGD_RUNSTATEDIR_DPATH \
+	CONFIG_ELOGD_RUNSTATEDIR "/elogd"
+#define ELOGD_RUNSTATEDIR_PATH \
+	compile_eval(sizeof(CONFIG_ELOGD_RUNSTATEDIR) > 1, \
+	             ELOGD_RUNSTATEDIR_DPATH, \
+	             "CONFIG_ELOGD_RUNSTATEDIR string empty")
 
-/* Pathname to the kernel (logging) ring-buffer character device file. */
+/* Pathname to the kernel log ring-buffer character device file. */
 #define ELOGD_KERN_DPATH       "/dev/kmsg"
+
+#define ELOGD_KERN_MAJOR       (1)
+#define ELOGD_KERN_MINOR       (11)
 
 #define ELOGD_USER \
 	compile_eval(sizeof(CONFIG_ELOGD_USER) > 1, \
@@ -32,16 +40,20 @@
 	             CONFIG_ELOGD_STORE_GROUP, \
 	             "CONFIG_ELOGD_STORE_GROUP string empty")
 
-#define ELOGD_SOCK_GROUP \
-	compile_eval(sizeof(CONFIG_ELOGD_SOCK_GROUP) > 1, \
-	             CONFIG_ELOGD_SOCK_GROUP, \
-	             "CONFIG_ELOGD_SOCK_GROUP string empty")
+#define ELOGD_RUNSTATEDIR_GROUP \
+	compile_eval(sizeof(CONFIG_ELOGD_RUNSTATEDIR_GROUP) > 1, \
+	             CONFIG_ELOGD_RUNSTATEDIR_GROUP, \
+	             "CONFIG_ELOGD_RUNSTATEDIR_GROUP string empty")
 
 #if defined(CONFIG_ELOGD_DEBUG)
 #define ELOGD_USAGE_DEBUG_LEVEL "|debug"
 #else  /* !defined(CONFIG_ELOGD_DEBUG) */
 #define ELOGD_USAGE_DEBUG_LEVEL
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
+#define ELOGD_USAGE_LEVEL \
+	"Where:\n" \
+	"    LEVEL := none|dflt|emerg|alert|crit|err|warn|notice|info" \
+	ELOGD_USAGE_DEBUG_LEVEL
 
 #if defined(CONFIG_ELOGD_ASSERT)
 
@@ -198,5 +210,17 @@ elogd_make_path(char ** __restrict      result,
                 const char * __restrict file_name,
                 size_t                  file_len)
 	__elogd_nonull(1, 2, 4) __elogd_nothrow __leaf __warn_result;
+
+extern int
+elogd_make_lock_path(char ** __restrict      result,
+                     const char * __restrict path,
+                     size_t                  length)
+	__elogd_nonull(1, 2) __elogd_nothrow __warn_result;
+
+extern int
+elogd_lock(const char * __restrict path) __elogd_nonull(1);
+
+extern void
+elogd_unlock(void);
 
 #endif /* _ELOGD_BUILTIN_H */
