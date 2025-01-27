@@ -13,6 +13,14 @@
 #include "intern.h"
 #include <utils/time.h>
 
+
+#if defined(CONFIG_ELOGD_KERN)
+#endif /* defined(CONFIG_ELOGD_KERN) */
+
+
+
+
+
 #if defined(CONFIG_ELOGD_MQUEUE)
 
 #define elogd_pipe_has_mqueue(_pipe) \
@@ -301,6 +309,63 @@ elogd_pipe_stop(struct elogd_pipe * __restrict pipe)
 	return ret;
 }
 
+#if defined(CONFIG_ELOGD_KERN)
+
+static __elogd_nonull(1)
+int
+elogd_pipe_create_kern(struct elogd_pipe * __restrict  pipe,
+                       const struct upoll * __restrict poll)
+{
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
+	if (elogd_conf.kern_on) {
+		pipe->kern = elogd_kern_create(pipe, poll);
+		if (!pipe->kern)
+			return -errno;
+	}
+	else
+		pipe->kern = NULL;
+
+	return 0;
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_pipe_destroy_kern(struct elogd_pipe * __restrict  pipe,
+                        const struct upoll * __restrict poll)
+{
+	elogd_pipe_assert(pipe);
+	elogd_assert(poll);
+
+	if (pipe->kern)
+		elogd_kern_destroy(pipe->kern, poll);
+}
+
+#else  /* !defined(CONFIG_ELOGD_KERN) */
+
+static __elogd_nonull(1)
+int
+elogd_pipe_create_kern(struct elogd_pipe * __restrict  pipe,
+                       const struct upoll * __restrict poll)
+{
+	elogd_assert(pipe);
+	elogd_assert(poll);
+
+	return 0;
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_pipe_destroy_kern(struct elogd_pipe * __restrict  pipe,
+                        const struct upoll * __restrict poll)
+{
+	elogd_pipe_assert(pipe);
+	elogd_assert(poll);
+}
+
+#endif /* defined(CONFIG_ELOGD_KERN) */
+
 #if defined(CONFIG_ELOGD_MQUEUE)
 
 static __elogd_nonull(1)
@@ -389,15 +454,9 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 	else
 		pipe->sock = NULL;
 
-	if (elogd_conf.kern_on) {
-		pipe->kern = elogd_kern_create(pipe, poll);
-		if (!pipe->kern) {
-			err = -errno;
-			goto destroy_sock;
-		}
-	}
-	else
-		pipe->kern = NULL;
+	err = elogd_pipe_create_kern(pipe, poll);
+	if (err)
+		goto destroy_sock;
 
 	err = elogd_pipe_create_mqueue(pipe, poll);
 	if (err)
@@ -427,8 +486,7 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 destroy_mqueue:
 	elogd_pipe_destroy_mqueue(pipe, poll);
 destroy_kern:
-	if (pipe->kern)
-		elogd_kern_destroy(pipe->kern, poll);
+	elogd_pipe_destroy_kern(pipe, poll);
 destroy_sock:
 	if (pipe->sock)
 		elogd_sock_destroy(pipe->sock, poll);
@@ -450,8 +508,7 @@ elogd_pipe_close(struct elogd_pipe * __restrict  pipe,
 	elogd_store_close(&pipe->store);
 
 	elogd_pipe_destroy_mqueue(pipe, poll);
-	if (pipe->kern)
-		elogd_kern_destroy(pipe->kern, poll);
+	elogd_pipe_destroy_kern(pipe, poll);
 	if (pipe->sock)
 		elogd_sock_destroy(pipe->sock, poll);
 

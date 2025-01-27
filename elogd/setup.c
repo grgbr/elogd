@@ -14,7 +14,9 @@
 
 struct elogd_setup_conf {
 	bool                   kern_on;
+#if defined(CONFIG_ELOGD_KERN)
 	const char *           kern_group;
+#endif /* defined(CONFIG_ELOGD_KERN) */
 	const char *           user;
 	const char *           rundir_path;
 	size_t                 rundir_len;
@@ -26,8 +28,19 @@ struct elogd_setup_conf {
 	struct elog_stdio_conf stdlog;
 };
 
+#if defined(CONFIG_ELOGD_KERN)
+
+#define elogd_setup_assert_kern(_conf) \
+	elogd_assert(upwd_validate_group_name((_conf)->kern_group) > 0)
+
+#else  /* !defined(CONFIG_ELOGD_KERN) */
+
+#define elogd_setup_assert_kern(_conf)
+
+#endif /* defined(CONFIG_ELOGD_KERN) */
+
 #define elogd_setup_assert_conf(_conf) \
-	elogd_assert(upwd_validate_group_name((_conf)->kern_group) > 0); \
+	elogd_setup_assert_kern(_conf); \
 	elogd_assert(upwd_validate_user_name((_conf)->user) > 0); \
 	elogd_assert((_conf)->rundir_len); \
 	elogd_assert((size_t) \
@@ -42,7 +55,9 @@ struct elogd_setup_conf {
 
 static struct elogd_setup_conf elogd_setup_the_conf = {
 	.kern_on        = true,
+#if defined(CONFIG_ELOGD_KERN)
 	.kern_group     = CONFIG_ELOGD_KERN_GROUP,
+#endif /* defined(CONFIG_ELOGD_KERN) */
 	.user           = ELOGD_USER,
 	.rundir_path    = ELOGD_RUNSTATEDIR_PATH,
 	.rundir_len     = sizeof(ELOGD_RUNSTATEDIR_PATH) - 1,
@@ -102,6 +117,8 @@ elogd_setup_kern_dmesg(void)
 	                                2);
 }
 
+#if defined(CONFIG_ELOGD_KERN)
+
 /*
  * Enable kernel log access from userspace.
  *
@@ -110,12 +127,31 @@ elogd_setup_kern_dmesg(void)
  */
 static
 int
-elogd_setup_kern_rdonly(void)
+elogd_setup_kern_kmsg(void)
 {
 	return elogd_setup_sysctl_write("/proc/sys/kernel/printk_devkmsg",
 	                                "on\n",
 	                                3);
 }
+
+#else  /* !defined(CONFIG_ELOGD_KERN) */
+
+/*
+ * Disable kernel log access from userspace.
+ *
+ * See `printk_devkmsg' within
+ * <linux>/Documentation/admin-guide/sysctl/kernel.rst
+ */
+static
+int
+elogd_setup_kern_kmsg(void)
+{
+	return elogd_setup_sysctl_write("/proc/sys/kernel/printk_devkmsg",
+	                                "off\n",
+	                                4);
+}
+
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 static
 int
@@ -125,7 +161,7 @@ elogd_setup_kern_log(void)
 
 	int  err;
 
-	err = elogd_setup_kern_rdonly();
+	err = elogd_setup_kern_kmsg();
 	if (err) {
 		elogd_err("kernel log: "
 		          "failed to enable access from userspace: %s (%d).",
@@ -146,6 +182,8 @@ elogd_setup_kern_log(void)
 	return EXIT_SUCCESS;
 }
 
+#if defined(CONFIG_ELOGD_KERN)
+
 /*
  * Setup kernel log ring-buffer (usualy `/dev/kmsg').
  *
@@ -164,7 +202,6 @@ elogd_setup_kern_dev(void)
 
 	gid_t  gid;
 	int    err;
-	mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP;
 
 	err = upwd_get_gid_byname(elogd_setup_the_conf.kern_group, &gid);
 	if (err) {
@@ -177,7 +214,7 @@ elogd_setup_kern_dev(void)
 	err = enbox_make_chrdev(ELOGD_KERN_DPATH,
 	                        0,                 /* root */
 	                        gid,               /* klog */
-	                        mode,              /* 0660 or 0640 */
+	                        S_IRUSR | S_IRGRP, /* 0440 */
 	                        ELOGD_KERN_MAJOR,
 	                        ELOGD_KERN_MINOR);
 	if (err) {
@@ -191,6 +228,36 @@ elogd_setup_kern_dev(void)
 
 	return EXIT_SUCCESS;
 }
+
+#else  /* !defined(CONFIG_ELOGD_KERN) */
+
+static
+int
+elogd_setup_kern_dev(void)
+{
+	elogd_setup_assert_conf(&elogd_setup_the_conf);
+
+	int err;
+
+	err = enbox_make_chrdev(ELOGD_KERN_DPATH,
+	                        0,                 /* root */
+	                        0,                 /* root */
+	                        S_IRUSR,           /* 0400 */
+	                        ELOGD_KERN_MAJOR,
+	                        ELOGD_KERN_MINOR);
+	if (err) {
+		elogd_err("'" ELOGD_KERN_DPATH "' kernel log device: "
+		          "failed to setup device node: "
+		          "%s (%d).",
+		          strerror(-err),
+		          -err);
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
+}
+
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 static __elogd_nonull(1, 2, 3, 5)
 int
@@ -313,6 +380,19 @@ elogd_setup_storedir(void)
 	                       "store");
 }
 
+#if defined(CONFIG_ELOGD_KERN)
+
+#define ELOGD_SETUP_KERN_USAGE \
+"    --kern-group=GROUP   -- set kernel log device node file group membership\n" \
+"                            to GROUP\n" \
+"                            (defaults to `" CONFIG_ELOGD_KERN_GROUP "')\n"
+
+#else  /* !defined(CONFIG_ELOGD_KERN) */
+
+#define ELOGD_SETUP_KERN_USAGE
+
+#endif /* defined(CONFIG_ELOGD_KERN) */
+
 #define USAGE \
 "Usage: %1$s [OPTIONS]\n" \
 "Setup eLogd daemon runtime environment.\n" \
@@ -322,9 +402,6 @@ elogd_setup_storedir(void)
 "                            user\n" \
 "                            (defaults to `" CONFIG_ELOGD_USER "')\n" \
 "    --no-kern            -- do not setup kernel log\n" \
-"    --kern-group=GROUP   -- set kernel log device node file group membership\n" \
-"                            to GROUP\n" \
-"                            (defaults to `" CONFIG_ELOGD_KERN_GROUP "')\n" \
 "    --rundir-path=PATH   -- use PATH as pathname to directory where volatile\n" \
 "                            internal state data are stored\n" \
 "                            (defaults to `" ELOGD_RUNSTATEDIR_DPATH "')\n" \
@@ -352,7 +429,9 @@ elogd_setup_show_usage(void)
 enum {
 	USER_OPT           = 1U << 0,
 	NO_KERN_OPT        = 1U << 1,
+#if defined(CONFIG_ELOGD_KERN)
 	KERN_GROUP_OPT     = 1U << 2,
+#endif /* defined(CONFIG_ELOGD_KERN) */
 	RUNDIR_PATH_OPT    = 1U << 3,
 	RUNDIR_GROUP_OPT   = 1U << 4,
 	NO_DEVLOG_OPT      = 1U << 5,
@@ -382,7 +461,9 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 		int                        opt;
 		static const struct option opts[] = {
 			{ "no-kern",        no_argument,       NULL, NO_KERN_OPT},
+#if defined(CONFIG_ELOGD_KERN)
 			{ "kern-group",     required_argument, NULL, KERN_GROUP_OPT },
+#endif /* defined(CONFIG_ELOGD_KERN) */
 			{ "user",           required_argument, NULL, USER_OPT },
 			{ "rundir-path",    required_argument, NULL, RUNDIR_PATH_OPT },
 			{ "rundir-group",   required_argument, NULL, RUNDIR_GROUP_OPT },
@@ -410,6 +491,7 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			elogd_setup_the_conf.kern_on = false;
 			break;
 
+#if defined(CONFIG_ELOGD_KERN)
 		case KERN_GROUP_OPT:
 			if (elogd_parse_group_name(
 				optarg,
@@ -417,6 +499,7 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 				&elogd_setup_the_conf.kern_group))
 				goto out;
 			break;
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 		case RUNDIR_PATH_OPT:
 			if (elogd_parse_rundir_path(
@@ -492,11 +575,13 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 		goto usage;
 	}
 
+#if defined(CONFIG_ELOGD_KERN)
 	if (stroll_bmap_test_mask(optmsk, NO_KERN_OPT) &&
 	    stroll_bmap_test_mask(optmsk, KERN_GROUP_OPT))
 		elogd_early_log(
 			"kernel log setup disabled, "
 			"ignoring --kern-from-user / --kern-group options...");
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 	if (stroll_bmap_test_mask(optmsk, NO_STORE_OPT) &&
 	    stroll_bmap_test_mask(optmsk, STORE_PATH_OPT | STORE_GROUP_OPT))

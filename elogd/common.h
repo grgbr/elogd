@@ -91,10 +91,12 @@ struct elogd_config {
 	/* Syslog message source queue dpeth. */
 	unsigned int           sock_fetch;
 
+#if defined(CONFIG_ELOGD_KERN)
 	/* Kernel log source enabled ? */
 	bool                   kern_on;
 	/* Kernel log ring-buffer source queue depth. */
 	unsigned int           kern_fetch;
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 #if defined(CONFIG_ELOGD_MQUEUE)
 	/* POSIX message queue log source enabled ? */
@@ -106,7 +108,32 @@ struct elogd_config {
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
 };
 
-#define elogd_assert_base_conf() \
+#if defined(CONFIG_ELOGD_KERN)
+
+#define elogd_assert_kern_conf() \
+	elogd_assert(elogd_conf.kern_fetch >= ELOGD_FETCH_MIN); \
+	elogd_assert(elogd_conf.kern_fetch <= ELOGD_FETCH_MAX)
+
+#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+#define elogd_assert_kern_conf()
+
+#endif /* defined(CONFIG_ELOGD_KERN) */
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+#define elogd_assert_mqueue_conf() \
+	elogd_assert(umq_validate_name(elogd_conf.mqueue_name) > 0); \
+	elogd_assert(elogd_conf.mqueue_fetch >= ELOGD_FETCH_MIN); \
+	elogd_assert(elogd_conf.mqueue_fetch <= ELOGD_FETCH_MAX)
+
+#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+#define elogd_assert_mqueue_conf()
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+#define elogd_assert_conf() \
 	elogd_assert(elogd_conf.delay >= ELOGD_DELAY_MIN); \
 	elogd_assert(elogd_conf.delay <= ELOGD_DELAY_MAX); \
 	\
@@ -140,23 +167,8 @@ struct elogd_config {
 	elogd_assert(elogd_conf.sock_fetch >= ELOGD_FETCH_MIN); \
 	elogd_assert(elogd_conf.sock_fetch <= ELOGD_FETCH_MAX); \
 	\
-	elogd_assert(elogd_conf.kern_fetch >= ELOGD_FETCH_MIN); \
-	elogd_assert(elogd_conf.kern_fetch <= ELOGD_FETCH_MAX)
-
-#if defined(CONFIG_ELOGD_MQUEUE)
-
-#define elogd_assert_conf() \
-	elogd_assert_base_conf(); \
-	elogd_assert(umq_validate_name(elogd_conf.mqueue_name) > 0); \
-	elogd_assert(elogd_conf.mqueue_fetch >= ELOGD_FETCH_MIN); \
-	elogd_assert(elogd_conf.mqueue_fetch <= ELOGD_FETCH_MAX)
-
-#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
-
-#define elogd_assert_conf() \
-	elogd_assert_base_conf(); \
-
-#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+	elogd_assert_kern_conf(); \
+	elogd_assert_mqueue_conf()
 
 extern struct elogd_config elogd_conf;
 

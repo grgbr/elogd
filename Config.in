@@ -72,7 +72,16 @@ config ELOGD_INTLOG_FETCH
 
 endmenu # menu "Internal logging source"
 
-menu "Kernel log source"
+
+
+menuconfig ELOGD_KERN
+	bool "Kernel log source"
+	default y
+	help
+	  Enable support for fetching messages from kernel log ring-buffer
+	  source.
+
+if ELOGD_KERN
 
 config ELOGD_KERN_GROUP
 	string "Kernel ring-buffer device group"
@@ -91,7 +100,7 @@ config ELOGD_KERN_FETCH
 	  Number of kernel messages that eLogd daemon will fetch in a single
 	  polling iteration.
 
-endmenu # menu "Kernel log source"
+endif # menuconfig ELOGD_KERN
 
 menuconfig ELOGD_MQUEUE
 	bool "Message queue log source"

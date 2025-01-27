@@ -250,6 +250,61 @@ elogd_parse_delay(const char * __restrict   arg,
 	return EXIT_SUCCESS;
 }
 
+#if defined(CONFIG_ELOGD_KERN)
+
+static inline
+bool
+elogd_kern_on(void)
+{
+	return elogd_conf.kern_on;
+}
+
+#else   /* !defined(CONFIG_ELOGD_KERN) */
+
+static inline
+bool
+elogd_kern_on(void)
+{
+	return false;
+}
+
+#endif  /* defined(CONFIG_ELOGD_KERN) */
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+static inline
+bool
+elogd_mqueue_on(void)
+{
+	return elogd_conf.mqueue_on;
+}
+
+#else   /* !defined(CONFIG_ELOGD_KERN) */
+
+static inline
+bool
+elogd_mqueue_on(void)
+{
+	return false;
+}
+
+#endif  /* defined(CONFIG_ELOGD_MQUEUE) */
+
+#if defined(CONFIG_ELOGD_KERN)
+
+#define USAGE_KERN \
+"    --no-kern             -- disable kernel log source\n" \
+"    --kern-fetch=COUNT    -- set maximum number of messages to fetch from\n" \
+"                             kernel log to COUNT in a row with\n" \
+"                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
+"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_KERN_FETCH) ")\n"
+
+#else  /* !defined(CONFIG_ELOGD_KERN) */
+
+#define USAGE_KERN
+
+#endif /* defined(CONFIG_ELOGD_KERN) */
+
 #if defined(CONFIG_ELOGD_MQUEUE)
 
 #define USAGE_MQUEUE \
@@ -299,11 +354,7 @@ elogd_parse_delay(const char * __restrict   arg,
 "                             syslog socket to COUNT in a row with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SOCK_FETCH) ")\n" \
-"    --no-kern             -- disable kernel log source\n" \
-"    --kern-fetch=COUNT    -- set maximum number of messages to fetch from\n" \
-"                             kernel log to COUNT in a row with\n" \
-"                             " STROLL_STRING(CONFIG_ELOGD_FETCH_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_FETCH_MAX)"\n" \
-"                             (defaults to " STROLL_STRING(CONFIG_ELOGD_KERN_FETCH) ")\n" \
+USAGE_KERN \
 USAGE_MQUEUE \
 "    --int-log=SEVERITY    -- set internal log verbosity level to SEVERITY\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_INTLOG_SEVERITY) ")\n" \
@@ -334,8 +385,10 @@ enum {
 	RUNDIR_GROUP_OPT = 1U << 7,
 	NO_SOCK_OPT      = 1U << 8,
 	SOCK_FETCH_OPT   = 1U << 9,
+#if defined(CONFIG_ELOGD_KERN)
 	NO_KERN_OPT      = 1U << 10,
 	KERN_FETCH_OPT   = 1U << 11,
+#endif /* defined(CONFIG_ELOGD_KERN) */
 #if defined(CONFIG_ELOGD_MQUEUE)
 	NO_MQUEUE_OPT    = 1U << 12,
 	MQUEUE_NAME_OPT  = 1U << 13,
@@ -376,8 +429,10 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			{ "rundir-group", required_argument, NULL, RUNDIR_GROUP_OPT },
 			{ "no-sock",      no_argument,       NULL, NO_SOCK_OPT },
 			{ "sock-fetch",   required_argument, NULL, SOCK_FETCH_OPT },
+#if defined(CONFIG_ELOGD_KERN)
 			{ "no-kern",      no_argument,       NULL, NO_KERN_OPT },
 			{ "kern-fetch",   required_argument, NULL, KERN_FETCH_OPT },
+#endif /* defined(CONFIG_ELOGD_KERN) */
 #if defined(CONFIG_ELOGD_MQUEUE)
 			{ "no-mq",        no_argument,       NULL, NO_MQUEUE_OPT },
 			{ "mq-name",      required_argument, NULL, MQUEUE_NAME_OPT },
@@ -452,6 +507,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
+#if defined(CONFIG_ELOGD_KERN)
 		case NO_KERN_OPT:
 			elogd_conf.kern_on = false;
 			break;
@@ -462,6 +518,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			                            &elogd_conf.kern_fetch))
 				goto out;
 			break;
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 #if defined(CONFIG_ELOGD_MQUEUE)
 		case NO_MQUEUE_OPT:
@@ -527,11 +584,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 		goto usage;
 	}
 
-	if (!elogd_conf.kern_on &&
-#if defined(CONFIG_ELOGD_MQUEUE)
-	    !elogd_conf.mqueue_on &&
-#endif /* defined(CONFIG_ELOGD_MQUEUE) */
-	    !elogd_conf.sock_on) {
+	if (!elogd_conf.sock_on && !elogd_kern_on() && !elogd_mqueue_on()) {
 		elogd_early_log("invalid configuration: "
 		                "all log sources disabled.");
 		goto out;
@@ -545,11 +598,13 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			"syslog socket log disabled, "
 			"ignoring --sock-fetch option...");
 
+#if defined(CONFIG_ELOGD_KERN)
 	if (stroll_bmap_test_mask(optmsk, NO_KERN_OPT) &&
 	    stroll_bmap_test_mask(optmsk, KERN_FETCH_OPT))
 		elogd_early_log(
 			"kernel log disabled, "
 			"ignoring --kern-fetch option...");
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 	if (stroll_bmap_test_mask(optmsk, NO_MQUEUE_OPT) &&
 	    stroll_bmap_test_mask(optmsk, MQUEUE_FETCH_OPT | MQUEUE_NAME_OPT))
@@ -576,16 +631,18 @@ elogd_fetch_nr(void)
 {
 	unsigned int nr = 0;
 
+	if (elogd_conf.sock_on)
+		nr += elogd_conf.sock_fetch;
+
+#if defined(CONFIG_ELOGD_KERN)
 	if (elogd_conf.kern_on)
 		nr += elogd_conf.kern_fetch;
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 #if defined(CONFIG_ELOGD_MQUEUE)
 	if (elogd_conf.mqueue_on)
 		nr += elogd_conf.mqueue_fetch;
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-
-	if (elogd_conf.sock_on)
-		nr += elogd_conf.sock_fetch;
 
 	if (elogd_conf.intlog.severity >= 0)
 		nr += elogd_conf.intlog_fetch;

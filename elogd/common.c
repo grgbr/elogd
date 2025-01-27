@@ -47,9 +47,11 @@ struct elogd_config elogd_conf = {
 #define ELOGD_SOCK_FETCH   STROLL_CONCAT(CONFIG_ELOGD_SOCK_FETCH, U)
 	.sock_fetch   = ELOGD_SOCK_FETCH,
 
+#if defined(CONFIG_ELOGD_KERN)
 	.kern_on      = true,
 #define ELOGD_KERN_FETCH   STROLL_CONCAT(CONFIG_ELOGD_KERN_FETCH, U)
 	.kern_fetch   = ELOGD_KERN_FETCH,
+#endif /* defined(CONFIG_ELOGD_KERN) */
 
 	/* POSIX message queue log settings. */
 #if defined(CONFIG_ELOGD_MQUEUE)

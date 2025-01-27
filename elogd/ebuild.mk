@@ -32,8 +32,9 @@ builtin.a-objs      := builtin.o
 builtin.a-cflags    := $(common-cflags)
 
 bins                := elogd
-elogd-objs          := main.o pipe.o store.o sock.o kern.o log.o intern.o \
-                       sigchan.o common.o
+elogd-objs          := main.o pipe.o store.o sock.o log.o intern.o sigchan.o \
+                       common.o
+elogd-objs          += $(call kconf_enabled,ELOGD_KERN,kern.o)
 elogd-objs          += $(call kconf_enabled,ELOGD_MQUEUE,mqueue.o)
 elogd-cflags        := $(common-cflags)
 elogd-ldflags       := $(common-ldflags) -l:builtin.a
