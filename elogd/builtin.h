@@ -16,34 +16,18 @@
 #include <elog/elog.h>
 #include <stdio.h>
 
-/* Pathname to directory where volatile internal state data are stored. */
-#define ELOGD_RUNSTATEDIR_DPATH \
-	CONFIG_ELOGD_RUNSTATEDIR "/elogd"
-#define ELOGD_RUNSTATEDIR_PATH \
-	compile_eval(sizeof(CONFIG_ELOGD_RUNSTATEDIR) > 1, \
-	             ELOGD_RUNSTATEDIR_DPATH, \
-	             "CONFIG_ELOGD_RUNSTATEDIR string empty")
-
 /* Pathname to the kernel log ring-buffer character device file. */
 #define ELOGD_KERN_DPATH       "/dev/kmsg"
 
 #define ELOGD_KERN_MAJOR       (1)
 #define ELOGD_KERN_MINOR       (11)
 
-#define ELOGD_USER \
-	compile_eval(sizeof(CONFIG_ELOGD_USER) > 1, \
-	             CONFIG_ELOGD_USER, \
-	             "CONFIG_ELOGD_USER string empty")
+#define ELOGD_EVAL_STRING(_str) \
+	compile_eval(sizeof(_str) > 1, _str, # _str "string empty")
 
-#define ELOGD_STORE_GROUP \
-	compile_eval(sizeof(CONFIG_ELOGD_STORE_GROUP) > 1, \
-	             CONFIG_ELOGD_STORE_GROUP, \
-	             "CONFIG_ELOGD_STORE_GROUP string empty")
-
-#define ELOGD_RUNSTATEDIR_GROUP \
-	compile_eval(sizeof(CONFIG_ELOGD_RUNSTATEDIR_GROUP) > 1, \
-	             CONFIG_ELOGD_RUNSTATEDIR_GROUP, \
-	             "CONFIG_ELOGD_RUNSTATEDIR_GROUP string empty")
+/* Pathname to directory where volatile internal state data are stored. */
+#define CONFIG_ELOGD_RUNSTATEDIR_PATH \
+	CONFIG_ELOGD_RUNSTATEDIR "/elogd"
 
 #if defined(CONFIG_ELOGD_DEBUG)
 #define ELOGD_USAGE_DEBUG_LEVEL "|debug"
@@ -154,6 +138,15 @@ elogd_parse_group_name(const char * __restrict  arg,
                        const char * __restrict  kind,
                        const char ** __restrict name)
 	__elog_nonull(1, 2, 3) __elogd_nothrow __leaf __warn_result;
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+extern int
+elogd_parse_mqueue_name(const char * __restrict  arg,
+                        const char ** __restrict name)
+	__elogd_nonull(1, 2) __elogd_nothrow __leaf __warn_result;
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
 extern void
 elogd_parse_init(struct elog_parse * __restrict      parse,

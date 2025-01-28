@@ -75,11 +75,11 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 
 	err = upwd_get_gid_byname(elogd_conf.store_group, &gid);
 	if (err) {
+		gid = elogd_gid;
 		elogd_warn("'%s': unknown log store group, "
 		           "using default GID %d.",
 		           elogd_conf.store_group,
 		           gid);
-		gid = elogd_gid;
 	}
 	err = ufile_fchown(store->fd, elogd_uid, gid);
 	if (err) {

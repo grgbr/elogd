@@ -88,6 +88,10 @@ int
 elogd_parse_user_name(const char * __restrict  arg,
                       const char ** __restrict user)
 {
+	elogd_assert(elogd_pid > 0);
+	elogd_assert(arg);
+	elogd_assert(user);
+
 	ssize_t ret;
 
 	ret = upwd_validate_user_name(arg);
@@ -129,6 +133,32 @@ elogd_parse_group_name(const char * __restrict  arg,
 
 	return EXIT_SUCCESS;
 }
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+int
+elogd_parse_mqueue_name(const char * __restrict  arg,
+                        const char ** __restrict name)
+{
+	elogd_assert(arg);
+	elogd_assert(name);
+
+	ssize_t ret;
+
+	ret = umq_validate_name(arg);
+	if (ret < 0) {
+		elogd_early_log("invalid message queue name: %s (%d).",
+		                strerror((int)-ret),
+		                (int)-ret);
+		return EXIT_FAILURE;
+	}
+
+	*name = arg;
+
+	return EXIT_SUCCESS;
+}
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 
 void
 elogd_parse_init(struct elog_parse * __restrict      parse,

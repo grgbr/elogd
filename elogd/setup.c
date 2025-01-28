@@ -26,21 +26,38 @@ struct elogd_setup_conf {
 	const char *           store_path;
 	const char *           store_group;
 	struct elog_stdio_conf stdlog;
+#if defined(CONFIG_ELOGD_MQUEUE)
+	struct elog_mqueue_conf mqlog;
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 };
 
 #if defined(CONFIG_ELOGD_KERN)
 
-#define elogd_setup_assert_kern(_conf) \
+#define elogd_setup_assert_kern_conf(_conf) \
 	elogd_assert(upwd_validate_group_name((_conf)->kern_group) > 0)
 
 #else  /* !defined(CONFIG_ELOGD_KERN) */
 
-#define elogd_setup_assert_kern(_conf)
+#define elogd_setup_assert_kern_conf(_conf)
 
 #endif /* defined(CONFIG_ELOGD_KERN) */
 
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+#define elogd_setup_assert_mqueue_conf(_conf) \
+	elogd_assert(((_conf)->mqlog.super.severity == -1) ^ \
+	             !((_conf)->mqlog.super.severity & ~LOG_PRIMASK)); \
+	elogd_assert(!((_conf)->mqlog.facility & ~LOG_FACMASK)); \
+	elogd_assert(umq_validate_name((_conf)->mqlog.name) > 0)
+
+#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+#define elogd_setup_assert_mqueue_conf(_conf)
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
 #define elogd_setup_assert_conf(_conf) \
-	elogd_setup_assert_kern(_conf); \
+	elogd_setup_assert_kern_conf(_conf); \
 	elogd_assert(upwd_validate_user_name((_conf)->user) > 0); \
 	elogd_assert((_conf)->rundir_len); \
 	elogd_assert((size_t) \
@@ -51,21 +68,22 @@ struct elogd_setup_conf {
 	elogd_assert(upwd_validate_group_name((_conf)->store_group) > 0); \
 	elogd_assert(((_conf)->stdlog.super.severity == -1) ^ \
 	             !((_conf)->stdlog.super.severity & ~LOG_PRIMASK)); \
-	elogd_assert((_conf)->stdlog.format == ELOG_TAG_FMT)
+	elogd_assert((_conf)->stdlog.format == ELOG_TAG_FMT); \
+	elogd_setup_assert_mqueue_conf(_conf)
 
 static struct elogd_setup_conf elogd_setup_the_conf = {
 	.kern_on        = true,
 #if defined(CONFIG_ELOGD_KERN)
-	.kern_group     = CONFIG_ELOGD_KERN_GROUP,
+	.kern_group     = ELOGD_EVAL_STRING(CONFIG_ELOGD_KERN_GROUP),
 #endif /* defined(CONFIG_ELOGD_KERN) */
-	.user           = ELOGD_USER,
-	.rundir_path    = ELOGD_RUNSTATEDIR_PATH,
-	.rundir_len     = sizeof(ELOGD_RUNSTATEDIR_PATH) - 1,
-	.rundir_group   = ELOGD_RUNSTATEDIR_GROUP,
+	.user           = ELOGD_EVAL_STRING(CONFIG_ELOGD_USER),
+	.rundir_path    = ELOGD_EVAL_STRING(CONFIG_ELOGD_RUNSTATEDIR_PATH),
+	.rundir_len     = sizeof(CONFIG_ELOGD_RUNSTATEDIR_PATH) - 1,
+	.rundir_group   = ELOGD_EVAL_STRING(CONFIG_ELOGD_RUNSTATEDIR_GROUP),
 	.devlog_on      = true,
 	.store_on       = true,
-	.store_path     = CONFIG_ELOGD_STORE_DPATH,
-	.store_group    = ELOGD_STORE_GROUP
+	.store_path     = ELOGD_EVAL_STRING(CONFIG_ELOGD_STORE_DPATH),
+	.store_group    = ELOGD_EVAL_STRING(CONFIG_ELOGD_STORE_GROUP)
 };
 
 static __elogd_nonull(1, 2)
@@ -131,7 +149,7 @@ elogd_setup_kern_kmsg(void)
 {
 	return elogd_setup_sysctl_write("/proc/sys/kernel/printk_devkmsg",
 	                                "on\n",
-	                                3);
+	                                sizeof("on\n") - 1);
 }
 
 #else  /* !defined(CONFIG_ELOGD_KERN) */
@@ -148,7 +166,7 @@ elogd_setup_kern_kmsg(void)
 {
 	return elogd_setup_sysctl_write("/proc/sys/kernel/printk_devkmsg",
 	                                "off\n",
-	                                4);
+	                                sizeof("off\n") - 1);
 }
 
 #endif /* defined(CONFIG_ELOGD_KERN) */
@@ -393,6 +411,194 @@ elogd_setup_storedir(void)
 
 #endif /* defined(CONFIG_ELOGD_KERN) */
 
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+static __elogd_nonull(1, 2)
+int
+elogd_setup_parse_mqueue_verbosity(const char * __restrict        arg,
+                                   struct elog_parse * __restrict parse)
+{
+	elogd_assert(elogd_pid > 0);
+	elogd_assert(arg);
+	elogd_assert(parse);
+
+	if (!strcmp(arg, "none")) {
+		elogd_setup_the_conf.mqlog.super.severity = -1;
+		return EXIT_SUCCESS;
+	}
+
+	if (elog_parse_mqueue_severity(parse,
+	                               &elogd_setup_the_conf.mqlog,
+	                               arg)) {
+		elogd_early_log("%s.", parse->error);
+		return EXIT_FAILURE;
+	}
+
+#if !defined(CONFIG_ELOGD_DEBUG)
+	if (elogd_setup_the_conf.mqlog.super.severity >= ELOG_DEBUG_SEVERITY) {
+		elogd_early_log("unexpected message queue log severity.");
+		return EXIT_FAILURE;
+	}
+#endif /* !defined(CONFIG_ELOGD_DEBUG) */
+
+	return EXIT_SUCCESS;
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_setup_init_parse(struct elog_parse * __restrict stdlog_parse,
+                       struct elog_parse * __restrict mqlog_parse)
+{
+	elogd_assert(stdlog_parse);
+	elogd_assert(mqlog_parse);
+
+	static const struct elog_mqueue_conf mqlog_dflt = {
+		.super.severity = 0,
+		.facility       = LOG_SYSLOG,
+		.name           = ELOGD_EVAL_STRING(CONFIG_ELOGD_MQUEUE_NAME)
+	};
+
+	elogd_parse_init(stdlog_parse, &elogd_setup_the_conf.stdlog);
+
+	elog_init_mqueue_parse(mqlog_parse,
+	                       &elogd_setup_the_conf.mqlog,
+	                       &mqlog_dflt);
+	elogd_setup_the_conf.mqlog.super.severity = -1;
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_setup_fini_parse(struct elog_parse * __restrict stdlog_parse,
+                       struct elog_parse * __restrict mqlog_parse)
+{
+	elogd_assert(elogd_pid > 0);
+	elogd_assert(stdlog_parse);
+	elogd_assert(mqlog_parse);
+
+	elog_fini_parse(mqlog_parse);
+	elogd_parse_fini(stdlog_parse);
+}
+
+#else  /* !defined(CONFIG_ELOGD_MQUEUE) */
+
+static __elogd_nonull(1, 2)
+void
+elogd_setup_init_parse(struct elog_parse * __restrict stdlog_parse,
+                       struct elog_parse * __restrict mqlog_parse __unused)
+{
+	elogd_assert(stdlog_parse);
+
+	elogd_parse_init(stdlog_parse, &elogd_setup_the_conf.stdlog);
+}
+
+static __elogd_nonull(1, 2)
+void
+elogd_setup_fini_parse(struct elog_parse * __restrict stdlog_parse,
+                       struct elog_parse * __restrict mqlog_parse __unused)
+{
+	elogd_assert(elogd_pid > 0);
+	elogd_assert(stdlog_parse);
+
+	elogd_parse_fini(stdlog_parse);
+}
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+static
+int
+elogd_setup_enable_log(void)
+{
+	elogd_setup_assert_conf(&elogd_setup_the_conf);
+	elogd_assert(elogd_pid > 0);
+
+	elog_setup(ELOG_DFLT_TAG, elogd_pid);
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+	if ((elogd_setup_the_conf.stdlog.super.severity >= 0) &&
+	    (elogd_setup_the_conf.mqlog.super.severity >= 0)) {
+#if defined(CONFIG_ELOGD_DEBUG)
+		elogd_logger = (struct elog *)elog_create_multi(elog_destroy);
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+		elogd_logger = (struct elog *)elog_create_multi(elog_fini);
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+		if (!elogd_logger)
+			return -ENOMEM;
+	}
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+	if (elogd_setup_the_conf.stdlog.super.severity >= 0) {
+		struct elog * stdlog;
+
+		stdlog = (struct elog *)
+		         elog_create_stdio(&elogd_setup_the_conf.stdlog);
+		if (!stdlog)
+			goto fini;
+
+		if (!elogd_logger) {
+			elogd_logger = stdlog;
+			return 0;
+		}
+
+		if (elog_register_multi_sublog(
+			(struct elog_multi *)elogd_logger, stdlog)) {
+			elogd_destroy_logger(stdlog);
+			goto fini;
+		}
+	}
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+	if (elogd_setup_the_conf.mqlog.super.severity >= 0) {
+		struct elog * mqlog;
+
+		mqlog = (struct elog *)
+		        elog_create_mqueue(&elogd_setup_the_conf.mqlog);
+		if (!mqlog) {
+			if (errno != ENOMEM)
+				elogd_early_log(
+					"failed to create '%s' message queue logger: "
+					"%s (%d).",
+					elogd_setup_the_conf.mqlog.name,
+					strerror(errno),
+					errno);
+			goto fini;
+		}
+
+		if (!elogd_logger) {
+			elogd_logger = mqlog;
+			return 0;
+		}
+
+		if (elog_register_multi_sublog(
+			(struct elog_multi *)elogd_logger, mqlog)) {
+			elogd_destroy_logger(mqlog);
+			goto fini;
+		}
+	}
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
+	return 0;
+
+fini:
+	elogd_log_fini();
+
+	return -ENOMEM;
+}
+
+#if defined(CONFIG_ELOGD_MQUEUE)
+
+#define ELOGD_SETUP_MQLOG_USAGE \
+"    --mq-name=NAME       -- use NAME as message queue name used to log\n" \
+"                            diagnostic messages\n" \
+"                            (defaults to `" CONFIG_ELOGD_MQUEUE_NAME "')\n" \
+"    --mq-log=SEVERITY    -- set message queue log verbosity level to SEVERITY\n" \
+"                            (defaults to `none')\n"
+
+#else  /* defined(CONFIG_ELOGD_MQUEUE) */
+
+#define ELOGD_SETUP_MQLOG_USAGE
+
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
 #define USAGE \
 "Usage: %1$s [OPTIONS]\n" \
 "Setup eLogd daemon runtime environment.\n" \
@@ -402,9 +608,10 @@ elogd_setup_storedir(void)
 "                            user\n" \
 "                            (defaults to `" CONFIG_ELOGD_USER "')\n" \
 "    --no-kern            -- do not setup kernel log\n" \
+ELOGD_SETUP_KERN_USAGE \
 "    --rundir-path=PATH   -- use PATH as pathname to directory where volatile\n" \
 "                            internal state data are stored\n" \
-"                            (defaults to `" ELOGD_RUNSTATEDIR_DPATH "')\n" \
+"                            (defaults to `" CONFIG_ELOGD_RUNSTATEDIR_PATH "')\n" \
 "    --rundir-group=GROUP -- set volatile internal state data directory group\n" \
 "                            membership to GROUP\n" \
 "                            (defaults to `" CONFIG_ELOGD_RUNSTATEDIR_GROUP "')\n" \
@@ -414,6 +621,7 @@ elogd_setup_storedir(void)
 "                            (defaults to `" CONFIG_ELOGD_STORE_DPATH "')\n" \
 "    --store-group=GROUP  -- set log store directory group membership to GROUP\n" \
 "                            (defaults to `" CONFIG_ELOGD_STORE_GROUP "')\n" \
+ELOGD_SETUP_MQLOG_USAGE \
 "    --verbose=SEVERITY   -- set console log verbosity level to SEVERITY\n" \
 "                            (defaults to " STROLL_STRING(CONFIG_ELOGD_STDLOG_SEVERITY) ")\n" \
 "    -h|--help            -- this help message\n" \
@@ -438,7 +646,11 @@ enum {
 	NO_STORE_OPT       = 1U << 6,
 	STORE_PATH_OPT     = 1U << 7,
 	STORE_GROUP_OPT    = 1U << 8,
-	VERBOSE_OPT        = 1U << 9,
+#if defined(CONFIG_ELOGD_MQUEUE)
+	MQUEUE_NAME_OPT    = 1U << 9,
+	MQUEUE_LOG_OPT     = 1U << 10,
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+	VERBOSE_OPT        = 1U << 11,
 	HELP_OPT           = 'h',
 	MISSING_OPT        = ':',
 	UNKNOWN_OPT        = '?'
@@ -451,11 +663,12 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 	elogd_assert(argc);
 	elogd_assert(argv);
 
-	struct elog_parse parse;
+	struct elog_parse stdlog_parse;
+	struct elog_parse mqlog_parse;
 	unsigned int      optmsk = STROLL_BMAP_INIT_CLEAR;
 	int               ret = EXIT_FAILURE;
 
-	elogd_parse_init(&parse, &elogd_setup_the_conf.stdlog);
+	elogd_setup_init_parse(&stdlog_parse, &mqlog_parse);
 
 	while (true) {
 		int                        opt;
@@ -471,6 +684,10 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			{ "no-store",       no_argument,       NULL, NO_STORE_OPT },
 			{ "store-path",     required_argument, NULL, STORE_PATH_OPT },
 			{ "store-group",    required_argument, NULL, STORE_GROUP_OPT },
+#if defined(CONFIG_ELOGD_MQUEUE)
+			{ "mq-name",        required_argument, NULL, MQUEUE_NAME_OPT },
+			{ "mq-log",         required_argument, NULL, MQUEUE_LOG_OPT },
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
 			{ "verbose",        required_argument, NULL, VERBOSE_OPT },
 			{ "help",           no_argument,       NULL, HELP_OPT },
 			{ NULL,             0,                 NULL, -1 }
@@ -541,9 +758,25 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 				goto out;
 			break;
 
+#if defined(CONFIG_ELOGD_MQUEUE)
+		case MQUEUE_NAME_OPT:
+			if (elogd_parse_mqueue_name(
+				optarg,
+				&elogd_setup_the_conf.mqlog.name))
+				goto out;
+			break;
+
+		case MQUEUE_LOG_OPT:
+			if (elogd_setup_parse_mqueue_verbosity(
+				optarg,
+				&mqlog_parse))
+				goto out;
+			break;
+#endif /* defined(CONFIG_ELOGD_MQUEUE) */
+
 		case VERBOSE_OPT:
 			if (elogd_parse_stdlog(optarg,
-			                       &parse,
+			                       &stdlog_parse,
 			                       &elogd_setup_the_conf.stdlog))
 				goto out;
 			break;
@@ -589,26 +822,17 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			"log store directory setup disabled, "
 			"ignoring --store-path / --store-group options...");
 
-	elogd_parse_fini(&parse);
+	elogd_setup_fini_parse(&stdlog_parse, &mqlog_parse);
 
-	if (elogd_setup_the_conf.stdlog.super.severity >= 0) {
-		struct elog * stdlog;
-
-		stdlog = (struct elog *)
-		         elog_create_stdio(&elogd_setup_the_conf.stdlog);
-		if (!stdlog)
-			return EXIT_FAILURE;
-
-		elog_setup(ELOG_DFLT_TAG, elogd_pid);
-		elogd_logger = stdlog;
-	}
+	if (elogd_setup_enable_log())
+		return EXIT_FAILURE;
 
 	return EXIT_SUCCESS;
 
 usage:
 	elogd_setup_show_usage();
 out:
-	elogd_parse_fini(&parse);
+	elogd_setup_fini_parse(&stdlog_parse, &mqlog_parse);
 
 	return ret;
 }

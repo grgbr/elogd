@@ -21,6 +21,7 @@
  * Global configuration
  ******************************************************************************/
 
+
 struct elogd_config elogd_conf = {
 #define ELOGD_DELAY        STROLL_CONCAT(CONFIG_ELOGD_DELAY, U)
 	.delay        = ELOGD_DELAY,
@@ -29,19 +30,22 @@ struct elogd_config elogd_conf = {
 	.store_rot    = ELOGD_STORE_ROT,
 #define ELOGD_STORE_SIZE   STROLL_CONCAT(CONFIG_ELOGD_STORE_SIZE, U)
 	.store_size   = ELOGD_STORE_SIZE,
-	.store_dpath  = CONFIG_ELOGD_STORE_DPATH,
-	.store_fbase  = CONFIG_ELOGD_STORE_FBASE,
+	.store_dpath  = ELOGD_EVAL_STRING(CONFIG_ELOGD_STORE_DPATH),
+	.store_fbase  = ELOGD_EVAL_STRING(CONFIG_ELOGD_STORE_FBASE),
 	.store_flen   = sizeof(CONFIG_ELOGD_STORE_FBASE) - 1,
-	.store_group  = ELOGD_STORE_GROUP,
+	.store_group  = ELOGD_EVAL_STRING(CONFIG_ELOGD_STORE_GROUP),
 
-	.user         = ELOGD_USER,
+	.user         = ELOGD_EVAL_STRING(CONFIG_ELOGD_USER),
+#if defined(CONFIG_ELOGD_NOSEC)
+	.sec_on       = true,
+#endif /* defined(CONFIG_ELOGD_NOSEC) */
 
 #define ELOGD_INTLOG_FETCH STROLL_CONCAT(CONFIG_ELOGD_INTLOG_FETCH, U)
 	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,
 
-	.rundir_path  = ELOGD_RUNSTATEDIR_PATH,
-	.rundir_len   = sizeof(ELOGD_RUNSTATEDIR_PATH) - 1,
-	.rundir_group = ELOGD_RUNSTATEDIR_GROUP,
+	.rundir_path    = ELOGD_EVAL_STRING(CONFIG_ELOGD_RUNSTATEDIR_PATH),
+	.rundir_len     = sizeof(CONFIG_ELOGD_RUNSTATEDIR_PATH) - 1,
+	.rundir_group = ELOGD_EVAL_STRING(CONFIG_ELOGD_RUNSTATEDIR_GROUP),
 
 	.sock_on      = true,
 #define ELOGD_SOCK_FETCH   STROLL_CONCAT(CONFIG_ELOGD_SOCK_FETCH, U)
@@ -56,11 +60,7 @@ struct elogd_config elogd_conf = {
 	/* POSIX message queue log settings. */
 #if defined(CONFIG_ELOGD_MQUEUE)
 	.mqueue_on    = true,
-#define ELOGD_MQUEUE_NAME \
-	compile_eval(sizeof(CONFIG_ELOGD_MQUEUE_NAME) > 1, \
-	             CONFIG_ELOGD_MQUEUE_NAME, \
-	             "CONFIG_ELOGD_MQUEUE_NAME string empty")
-	.mqueue_name  = ELOGD_MQUEUE_NAME,
+	.mqueue_name  = ELOGD_EVAL_STRING(CONFIG_ELOGD_MQUEUE_NAME),
 #define ELOGD_MQUEUE_FETCH STROLL_CONCAT(CONFIG_ELOGD_MQUEUE_FETCH, U)
 	.mqueue_fetch = ELOGD_MQUEUE_FETCH
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */

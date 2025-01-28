@@ -17,8 +17,6 @@
 #include <stroll/dlist.h>
 #include <linux/taskstats.h>
 
-#define ELOGD_SOCK_PATH ELOGD_RUNSTATEDIR_PATH "/sock"
-
 extern uid_t elogd_uid;
 extern gid_t elogd_gid;
 
@@ -67,6 +65,10 @@ struct elogd_config {
 
 	/* Username eLogd switches to at initialization time. */
 	const char *           user;
+#if defined(CONFIG_ELOGD_NOSEC)
+	/* Is secure operation required. */
+	bool                   sec_on;
+#endif /* defined(CONFIG_ELOGD_NOSEC) */
 
 	/* Console / stdio logging settings. */
 	struct elog_stdio_conf stdlog;

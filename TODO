@@ -1,7 +1,7 @@
 Fixes
 =====
 
-* refine elogd_secure(): allow syslog cap...
+* configurable build kern support
 * rate limit internal log messages
 * implement elogd fallback timeout in case of store write error -ENOSPC....
 * Move to slist impl

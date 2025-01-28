@@ -346,8 +346,8 @@ elogd_pipe_destroy_kern(struct elogd_pipe * __restrict  pipe,
 
 static __elogd_nonull(1)
 int
-elogd_pipe_create_kern(struct elogd_pipe * __restrict  pipe,
-                       const struct upoll * __restrict poll)
+elogd_pipe_create_kern(struct elogd_pipe * __restrict  pipe __unused,
+                       const struct upoll * __restrict poll __unused)
 {
 	elogd_assert(pipe);
 	elogd_assert(poll);
@@ -357,8 +357,8 @@ elogd_pipe_create_kern(struct elogd_pipe * __restrict  pipe,
 
 static __elogd_nonull(1, 2)
 void
-elogd_pipe_destroy_kern(struct elogd_pipe * __restrict  pipe,
-                        const struct upoll * __restrict poll)
+elogd_pipe_destroy_kern(struct elogd_pipe * __restrict  pipe __unused,
+                        const struct upoll * __restrict poll __unused)
 {
 	elogd_pipe_assert(pipe);
 	elogd_assert(poll);

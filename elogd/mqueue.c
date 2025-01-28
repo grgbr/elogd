@@ -277,15 +277,15 @@ elogd_mqueue_open(struct elogd_mqueue * __restrict mqueue,
 		goto close;
 	}
 
-	if (st.st_mode & (~((mode_t)ALLPERMS) | (mode_t)S_IRWXO)) {
-		err = -ENODEV;
+	if (st.st_mode & ALLPERMS & (~((mode_t)ACCESSPERMS) | S_IRWXO)) {
+		err = -EPERM;
 		msg = "unexpected permission mode bits";
 		goto close;
 	}
 
 	umq_getattr(fd, &attr);
 	if ((attr.mq_maxmsg < 1) || (attr.mq_msgsize < (long)ELOG_LINE_MAX)) {
-		err = -EPERM;
+		err = -ENODEV;
 		msg = "invalid message size capacity";
 		goto close;
 	}
