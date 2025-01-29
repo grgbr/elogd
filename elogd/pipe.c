@@ -13,14 +13,6 @@
 #include "intern.h"
 #include <utils/time.h>
 
-
-#if defined(CONFIG_ELOGD_KERN)
-#endif /* defined(CONFIG_ELOGD_KERN) */
-
-
-
-
-
 #if defined(CONFIG_ELOGD_MQUEUE)
 
 #define elogd_pipe_has_mqueue(_pipe) \
@@ -116,18 +108,6 @@ elogd_realtime_offset(struct timespec * __restrict real,
 
 	ret = utime_tspec_sub(real, boot);
 	elogd_assert(ret >= 0);
-#if 0
-	if (utime_tspec_after(real, boot)) {
-		int ret __unused;
-
-		ret = utime_tspec_sub(real, boot);
-		elogd_assert(ret >= 0);
-	}
-	else {
-		real->tv_sec = 0;
-		real->tv_nsec = 0;
-	}
-#endif
 }
 
 static __elogd_nonull(1)

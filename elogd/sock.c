@@ -115,8 +115,9 @@ STROLL_RESTORE_WARN
 	}
 
 	if (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))
-		elogd_warn("syslog service read failed: "
-		           "unxpected truncated message.");
+		elogd_ratelim_warn("syslog service read failed...",
+		                   "syslog service read failed: "
+		                   "unxpected truncated message.");
 
 	return 0;
 }
@@ -286,7 +287,9 @@ STROLL_RESTORE_WARN
 	return 0;
 
 err:
-	elogd_warn("syslog service parsing failed: unexpected message.");
+	elogd_ratelim_warn("syslog service parsing failed...",
+	                   "syslog service parsing failed: "
+	                   "unexpected message.");
 
 	return -EINVAL;
 }

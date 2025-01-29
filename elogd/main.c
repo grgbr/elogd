@@ -702,8 +702,7 @@ elogd_enable_security(void)
 	if (upwd_get_uid_byname(elogd_conf.user, &uid))
 		goto err;
 
-	err = enbox_change_ids(elogd_conf.user,
-	                       ENBOX_RAISE_SUPP_GROUPS);
+	err = enbox_change_ids(elogd_conf.user, ENBOX_RAISE_SUPP_GROUPS);
 	if (err)
 		goto err;
 

@@ -67,7 +67,9 @@ elogd_mqueue_read(const struct elogd_mqueue * __restrict mqueue,
 
 	elogd_assert(ret >= 0);
 	if ((size_t)ret < ELOG_MQUEUE_MIN_LEN) {
-		elogd_warn("message queue read failed: message too small.");
+		elogd_ratelim_warn("message queue read failed...",
+		                   "message queue read failed: "
+		                   "message too small.");
 		return -EINVAL;
 	}
 
@@ -91,7 +93,9 @@ elogd_mqueue_parse(struct elogd_line * __restrict line)
 
 	blen = elog_parse_mqueue_msg(head, vec->iov_len);
 	if (blen < 0) {
-		elogd_warn("message queue parsing failed: unexpected message.");
+		elogd_ratelim_warn("message queue parsing failed...",
+		                   "message queue parsing failed: "
+		                   "unexpected message.");
 		return (int)blen;
 	}
 

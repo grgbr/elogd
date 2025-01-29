@@ -76,10 +76,11 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 	err = upwd_get_gid_byname(elogd_conf.store_group, &gid);
 	if (err) {
 		gid = elogd_gid;
-		elogd_warn("'%s': unknown log store group, "
-		           "using default GID %d.",
-		           elogd_conf.store_group,
-		           gid);
+		elogd_ratelim_warn("unknown log store group...",
+		                   "unknown log store group '%s', "
+		                   "using default GID %d.",
+		                   elogd_conf.store_group,
+		                   gid);
 	}
 	err = ufile_fchown(store->fd, elogd_uid, gid);
 	if (err) {
@@ -101,12 +102,14 @@ close:
 	ufile_close(store->fd);
 	store->fd = -1;
 err:
-	elogd_warn("'%s/%s': cannot instantiate log file: %s: %s (%d).",
-	           elogd_conf.store_dpath,
-	           store->base,
-	           msg,
-	           strerror(-err),
-	           -err);
+	elogd_ratelim_warn("cannot instantiate log file...",
+	                   "cannot instantiate log file: "
+	                   "'%s/%s': %s: %s (%d).",
+	                   elogd_conf.store_dpath,
+	                   store->base,
+	                   msg,
+	                   strerror(-err),
+	                   -err);
 
 	return err;
 }
@@ -129,11 +132,12 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 
 	err = ufile_sync(store->fd);
 	if (err)
-		elogd_warn("'%s/%s': cannot sync log file: %s (%d).",
-		           elogd_conf.store_dpath,
-		           orig,
-		           strerror(-err),
-		           -err);
+		elogd_ratelim_warn("cannot sync log file...",
+		                   "cannot sync log file: '%s/%s' : %s (%d).",
+		                   elogd_conf.store_dpath,
+		                   orig,
+		                   strerror(-err),
+		                   -err);
 
 	do {
 		sprintf(&orig[len], "%u", rot - 1);
@@ -142,12 +146,13 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 		/* Ignore errors since file might be missing. */
 		err = ufile_rename_at(store->dir, orig, store->dir, nevv, 0);
 		if (err)
-			elogd_warn("'%s/%s': "
-			           "cannot rotate log file: %s (%d).",
-			           elogd_conf.store_dpath,
-			           orig,
-			           strerror(-err),
-			           -err);
+			elogd_ratelim_warn("cannot rotate log file...",
+			                   "cannot rotate log file: "
+			                   "'%s/%s': %s (%d).",
+			                   elogd_conf.store_dpath,
+			                   orig,
+			                   strerror(-err),
+			                   -err);
 	} while (--rot);
 
 	/* Reset primary logging output file name. */
@@ -157,21 +162,23 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 	/* Just in case we failed to move primary logging output file. */
 	err = ufile_unlink_at(store->dir, orig);
 	if (err && (err != -ENOENT))
-		elogd_warn("'%s/%s': cannot unlink log file: %s (%d).",
-		           elogd_conf.store_dpath,
-		           orig,
-		           strerror(-err),
-		           -err);
+		elogd_ratelim_warn("cannot unlink log file...",
+		                   "cannot unlink log file: '%s/%s': %s (%d).",
+		                   elogd_conf.store_dpath,
+		                   orig,
+		                   strerror(-err),
+		                   -err);
 
 	/* Now close primary logging output file. */
 	err = ufile_close(store->fd);
 	if (err)
-		elogd_warn("'%s/%s': "
-		           "failed to close log file: %s (%d).",
-		           elogd_conf.store_dpath,
-		           orig,
-		           strerror(-err),
-		           -err);
+		elogd_ratelim_warn("failed to close log file...",
+		                   "failed to close log file: "
+		                   "'%s/%s': %s (%d).",
+		                   elogd_conf.store_dpath,
+		                   orig,
+		                   strerror(-err),
+		                   -err);
 
 	/* Open / create a new primary logging output file. */
 	ret = elogd_store_open_file(store);
@@ -182,10 +189,11 @@ elogd_store_rotate(struct elogd_store * __restrict store)
 	 */
 	err = udir_sync(store->dir);
 	if (err)
-		elogd_warn("'%s': cannot sync log directory: %s (%d).",
-		           elogd_conf.store_dpath,
-		           strerror(-err),
-		           -err);
+		elogd_ratelim_warn("cannot sync log directory...",
+		                   "cannot sync log directory: '%s': %s (%d).",
+		                   elogd_conf.store_dpath,
+		                   strerror(-err),
+		                   -err);
 
 	return ret;
 }
@@ -358,11 +366,13 @@ elogd_store_write(struct elogd_store * __restrict store,
 	}
 
 	if (ret)
-		elogd_warn("'%s/%s': write to log store failed: %s (%d).",
-		           elogd_conf.store_dpath,
-		           store->base,
-		           strerror(-ret),
-		           -ret);
+		elogd_ratelim_warn("write to log store failed...",
+		                   "write to log store failed: "
+		                   "'%s/%s': %s (%d).",
+		                   elogd_conf.store_dpath,
+		                   store->base,
+		                   strerror(-ret),
+		                   -ret);
 
 	return ret;
 }
@@ -484,8 +494,7 @@ elogd_store_open(struct elogd_store * __restrict store)
 	                                   (size_t)stat.f_frsize);
 	elogd_conf.store_size *= stat.f_frsize;
 
-	elogd_info("'%s' log store initialized.",
-	           elogd_conf.store_dpath);
+	elogd_info("'%s' log store initialized.", elogd_conf.store_dpath);
 
 	return 0;
 

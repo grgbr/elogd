@@ -97,9 +97,10 @@ elogd_kern_read(const struct elogd_kern * __restrict kern,
 	else if (!ret || (ret == -EAGAIN))
 		return -EAGAIN;
 
-	elogd_warn("kernel log read failed: %s (%d).",
-	           strerror((int)-ret),
-	           (int)-ret);
+	elogd_ratelim_warn("kernel log read failed...",
+	                   "kernel log read failed: %s (%d).",
+	                   strerror((int)-ret),
+	                   (int)-ret);
 
 	return (int)ret;
 }
@@ -314,7 +315,8 @@ STROLL_RESTORE_WARN
 	return 0;
 
 err:
-	elogd_warn("kernel log parsing failed: unexpected message.");
+	elogd_ratelim_warn("kernel log parsing failed...",
+	                   "kernel log parsing failed: unexpected message.");
 
 	return -EINVAL;
 }

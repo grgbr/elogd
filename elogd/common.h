@@ -21,6 +21,31 @@ extern uid_t elogd_uid;
 extern gid_t elogd_gid;
 
 /******************************************************************************
+ * Rate limited logging
+ ******************************************************************************/
+
+#define ELOGD_RATELIM_BURST (5U)
+#define ELOGD_RATELIM_LAPSE (10U)
+
+#define elogd_ratelim_log(_label, _severity, _format, ...) \
+	({ \
+		if (elogd_logger) \
+			elog_ratelim_log(elogd_logger, \
+			                 ELOGD_RATELIM_BURST, \
+			                 ELOGD_RATELIM_LAPSE, \
+			                 _label, \
+			                 _severity, \
+			                 _format, \
+			                 ## __VA_ARGS__); \
+	 })
+
+#define elogd_ratelim_warn(_label, _format, ...) \
+	elogd_ratelim_log(_label, \
+	                  ELOG_WARNING_SEVERITY, \
+	                  _format, \
+	                  ## __VA_ARGS__)
+
+/******************************************************************************
  * Global configuration
  ******************************************************************************/
 
