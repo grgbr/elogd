@@ -39,7 +39,7 @@ struct elogd_config elogd_conf = {
 	.sec_on       = true,
 #endif /* defined(CONFIG_ELOGD_NOSEC) */
 	.user         = ELOGD_EVAL_STRING(CONFIG_ELOGD_USER),
-	.lock_path      = ELOGD_EVAL_STRING(CONFIG_ELOGD_LOCK_PATH),
+	.lock_path    = ELOGD_EVAL_STRING(CONFIG_ELOGD_LOCK_PATH),
 
 #define ELOGD_INTLOG_FETCH STROLL_CONCAT(CONFIG_ELOGD_INTLOG_FETCH, U)
 	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,
