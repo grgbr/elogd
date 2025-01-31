@@ -35,10 +35,11 @@ struct elogd_config elogd_conf = {
 	.store_flen   = sizeof(CONFIG_ELOGD_STORE_FBASE) - 1,
 	.store_group  = ELOGD_EVAL_STRING(CONFIG_ELOGD_STORE_GROUP),
 
-	.user         = ELOGD_EVAL_STRING(CONFIG_ELOGD_USER),
 #if defined(CONFIG_ELOGD_NOSEC)
 	.sec_on       = true,
 #endif /* defined(CONFIG_ELOGD_NOSEC) */
+	.user         = ELOGD_EVAL_STRING(CONFIG_ELOGD_USER),
+	.lock_path      = ELOGD_EVAL_STRING(CONFIG_ELOGD_LOCK_PATH),
 
 #define ELOGD_INTLOG_FETCH STROLL_CONCAT(CONFIG_ELOGD_INTLOG_FETCH, U)
 	.intlog_fetch = CONFIG_ELOGD_INTLOG_FETCH,

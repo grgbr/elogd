@@ -85,6 +85,25 @@ elogd_parse_rundir_path(const char * __restrict  arg,
 }
 
 int
+elogd_parse_lock_path(const char * __restrict  arg,
+                      const char ** __restrict path)
+{
+	elogd_assert(arg);
+	elogd_assert(path);
+
+	ssize_t len;
+
+	len = elogd_parse_path(optarg, "lock file", path);
+	if (len < 0)
+		return EXIT_FAILURE;
+
+	elogd_assert(len);
+
+	return EXIT_SUCCESS;
+}
+
+
+int
 elogd_parse_user_name(const char * __restrict  arg,
                       const char ** __restrict user)
 {
@@ -215,27 +234,6 @@ elogd_make_path(char ** __restrict      result,
 	*result = path;
 
 	return (ssize_t)len;
-}
-
-int
-elogd_make_lock_path(char ** __restrict      result,
-                     const char * __restrict path,
-                     size_t                  length)
-{
-	elogd_assert(result);
-	elogd_assert((char *)result != path);
-	elogd_assert(length);
-	elogd_assert((size_t)upath_validate_path_name(path) == length);
-
-	ssize_t ret;
-
-	ret = elogd_make_path(result, path, length, "lock", sizeof("lock") - 1);
-	if (ret < 0)
-		return (int)ret;
-
-	elogd_assert(ret >= (ssize_t)(sizeof("/lock") - 1));
-
-	return 0;
 }
 
 static int elogd_lock_fd = -1;

@@ -88,12 +88,15 @@ struct elogd_config {
 	/* Output message files permission group name. */
 	const char *           store_group;
 
-	/* Username eLogd switches to at initialization time. */
-	const char *           user;
 #if defined(CONFIG_ELOGD_NOSEC)
 	/* Is secure operation required. */
 	bool                   sec_on;
 #endif /* defined(CONFIG_ELOGD_NOSEC) */
+
+	/* Username eLogd switches to at initialization time. */
+	const char *           user;
+	/* Pathname lock file. */
+	const char *           lock_path;
 
 	/* Console / stdio logging settings. */
 	struct elog_stdio_conf stdlog;
@@ -175,6 +178,7 @@ struct elogd_config {
 	elogd_assert(upwd_validate_group_name(elogd_conf.store_group) > 0); \
 	\
 	elogd_assert(upwd_validate_user_name(elogd_conf.user) > 0); \
+	elogd_assert(upath_validate_path_name(elogd_conf.lock_path) > 0); \
 	\
 	elogd_assert((elogd_conf.stdlog.super.severity == -1) ^ \
 	             !(elogd_conf.stdlog.super.severity & ~LOG_PRIMASK)); \

@@ -29,6 +29,10 @@
 #define CONFIG_ELOGD_RUNSTATEDIR_PATH \
 	CONFIG_ELOGD_RUNSTATEDIR "/elogd"
 
+/* Pathname to lock file. */
+#define CONFIG_ELOGD_LOCK_PATH \
+	CONFIG_ELOGD_LOCALSTATEDIR "/lock/elogd.lock"
+
 #if defined(CONFIG_ELOGD_DEBUG)
 #define ELOGD_USAGE_DEBUG_LEVEL "|debug"
 #else  /* !defined(CONFIG_ELOGD_DEBUG) */
@@ -123,6 +127,11 @@ elogd_parse_path(const char * __restrict  arg,
 	__elog_nonull(1, 2, 3) __elogd_nothrow __leaf __warn_result;
 
 extern int
+elogd_parse_lock_path(const char * __restrict  arg,
+                      const char ** __restrict path)
+	__elog_nonull(1, 2) __elogd_nothrow __warn_result;
+
+extern int
 elogd_parse_rundir_path(const char * __restrict  arg,
                         const char ** __restrict path,
                         size_t * __restrict      length)
@@ -203,12 +212,6 @@ elogd_make_path(char ** __restrict      result,
                 const char * __restrict file_name,
                 size_t                  file_len)
 	__elogd_nonull(1, 2, 4) __elogd_nothrow __leaf __warn_result;
-
-extern int
-elogd_make_lock_path(char ** __restrict      result,
-                     const char * __restrict path,
-                     size_t                  length)
-	__elogd_nonull(1, 2) __elogd_nothrow __warn_result;
 
 extern int
 elogd_lock(const char * __restrict path) __elogd_nonull(1);

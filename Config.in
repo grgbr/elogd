@@ -22,6 +22,14 @@ config ELOGD_USER
 	help
 	  System user name which eLogd daemon will switch to at running time.
 
+config ELOGD_LOCALSTATEDIR_ENVVAR
+	string
+	option env="LOCALSTATEDIR"
+
+config ELOGD_LOCALSTATEDIR
+	string
+	default ELOGD_LOCALSTATEDIR_ENVVAR
+
 config ELOGD_RUNSTATEDIR_ENVVAR
 	string
 	option env="RUNSTATEDIR"

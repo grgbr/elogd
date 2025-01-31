@@ -87,7 +87,7 @@ elogd_parse_store_path(const char * __restrict path)
 
 	ret = upath_validate_path_name(path);
 	if (ret < 0) {
-		elogd_early_log("invalid output logging pathname: %s (%d).",
+		elogd_early_log("invalid log store pathname: %s (%d).",
 		                strerror((int)-ret),
 		                (int)-ret);
 		return EXIT_FAILURE;
@@ -121,8 +121,7 @@ elogd_parse_store_path(const char * __restrict path)
 	elogd_assert(ret >= 0);
 	elogd_assert(ret <= NAME_MAX);
 	if (!ret) {
-		elogd_early_log("invalid output logging pathname: "
-		                "empty basename.");
+		elogd_early_log("invalid log store pathname: empty basename.");
 		goto free_dir;
 	}
 	elogd_assert(!((base[0] == '.') && (base[1] == '\0')));
@@ -167,7 +166,7 @@ elogd_parse_store_size(const char * __restrict size)
 	                            ELOGD_STORE_SIZE_MIN,
 	                            ELOGD_STORE_SIZE_MAX);
 	if (err) {
-		elogd_early_log("invalid output logging file size: %s (%d).",
+		elogd_early_log("invalid log store file size: %s (%d).",
 		                strerror(-err),
 		                -err);
 		return EXIT_FAILURE;
@@ -191,7 +190,7 @@ elogd_parse_store_rot(const char * __restrict count)
 	                            ELOGD_STORE_ROT_MIN,
 	                            ELOGD_STORE_ROT_MAX);
 	if (err) {
-		elogd_early_log("invalid output logging file rotation count: "
+		elogd_early_log("invalid log store file rotation count: "
 		                "%s (%d).",
 		                strerror(-err),
 		                -err);
@@ -318,18 +317,20 @@ elogd_mqueue_on(void)
 USAGE_NOSEC \
 "    --user=USER           -- run as USER user\n" \
 "                             (defaults to `" CONFIG_ELOGD_USER "')\n" \
+"    --lock-path=PATH      -- use PATH as pathname to lock file\n" \
+"                             (defaults to `" CONFIG_ELOGD_LOCK_PATH "')\n" \
 "    --delay=SECONDS       -- set time to wait before saving a message into the\n" \
 "                             message store to SECONDS seconds\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_DELAY_MIN) " <= SECONDS <= " STROLL_STRING(CONFIG_ELOGD_DELAY_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_DELAY) ")\n" \
-"    --store-path=PATH     -- use PATH as pathname to output logging files\n" \
+"    --store-path=PATH     -- use PATH as pathname to log store files\n" \
 "                             (defaults to `" CONFIG_ELOGD_STORE_DPATH "/" CONFIG_ELOGD_STORE_FBASE "')\n" \
 "    --store-group=GROUP   -- set log store files group membership to GROUP\n" \
 "                             (defaults to `" CONFIG_ELOGD_STORE_GROUP "')\n" \
-"    --store-rot=COUNT     -- rotate up to COUNT output logging files with\n" \
+"    --store-rot=COUNT     -- rotate up to COUNT log store files with\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_ROT_MIN) " <= COUNT <= " STROLL_STRING(CONFIG_ELOGD_ROT_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_ROT_NR) ")\n" \
-"    --store-size=SIZE     -- restrict output logging files size to SIZE bytes\n" \
+"    --store-size=SIZE     -- restrict log store files size to SIZE bytes\n" \
 "                             " STROLL_STRING(CONFIG_ELOGD_SIZE_MIN) " <= SIZE <= " STROLL_STRING(CONFIG_ELOGD_SIZE_MAX)"\n" \
 "                             (defaults to " STROLL_STRING(CONFIG_ELOGD_SIZE) " bytes)\n" \
 "    --rundir-path=PATH    -- use PATH as pathname to directory where volatile\n" \
@@ -368,27 +369,28 @@ enum {
 	NO_SEC_OPT       = 1U << 0,
 #endif /* defined(CONFIG_ELOGD_NOSEC) */
 	USER_OPT         = 1U << 1,
-	DELAY_OPT        = 1U << 2,
-	STORE_PATH_OPT   = 1U << 3,
-	STORE_GROUP_OPT  = 1U << 4,
-	STORE_ROT_OPT    = 1U << 5,
-	STORE_SIZE_OPT   = 1U << 6,
-	RUNDIR_PATH_OPT  = 1U << 7,
-	RUNDIR_GROUP_OPT = 1U << 8,
-	NO_SOCK_OPT      = 1U << 9,
-	SOCK_FETCH_OPT   = 1U << 10,
+	LOCK_PATH_OPT    = 1U << 2,
+	DELAY_OPT        = 1U << 3,
+	STORE_PATH_OPT   = 1U << 4,
+	STORE_GROUP_OPT  = 1U << 5,
+	STORE_ROT_OPT    = 1U << 6,
+	STORE_SIZE_OPT   = 1U << 7,
+	RUNDIR_PATH_OPT  = 1U << 8,
+	RUNDIR_GROUP_OPT = 1U << 9,
+	NO_SOCK_OPT      = 1U << 10,
+	SOCK_FETCH_OPT   = 1U << 11,
 #if defined(CONFIG_ELOGD_KERN)
-	NO_KERN_OPT      = 1U << 11,
-	KERN_FETCH_OPT   = 1U << 12,
+	NO_KERN_OPT      = 1U << 12,
+	KERN_FETCH_OPT   = 1U << 13,
 #endif /* defined(CONFIG_ELOGD_KERN) */
 #if defined(CONFIG_ELOGD_MQUEUE)
-	NO_MQUEUE_OPT    = 1U << 13,
-	MQUEUE_NAME_OPT  = 1U << 14,
-	MQUEUE_FETCH_OPT = 1U << 15,
+	NO_MQUEUE_OPT    = 1U << 14,
+	MQUEUE_NAME_OPT  = 1U << 15,
+	MQUEUE_FETCH_OPT = 1U << 16,
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-	INT_LOG_OPT      = 1U << 16,
-	INT_FETCH_OPT    = 1U << 17,
-	VERBOSE_OPT      = 1U << 18,
+	INT_LOG_OPT      = 1U << 17,
+	INT_FETCH_OPT    = 1U << 18,
+	VERBOSE_OPT      = 1U << 19,
 	HELP_OPT         = 'h',
 	MISSING_OPT      = ':',
 	UNKNOWN_OPT      = '?'
@@ -415,6 +417,7 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			{ "no-sec",       no_argument,       NULL, NO_SEC_OPT },
 #endif /* defined(CONFIG_ELOGD_NOSEC) */
 			{ "user",         required_argument, NULL, USER_OPT },
+			{ "lock-path",    required_argument, NULL, LOCK_PATH_OPT },
 			{ "delay",        required_argument, NULL, DELAY_OPT },
 			{ "store-path",   required_argument, NULL, STORE_PATH_OPT },
 			{ "store-group",  required_argument, NULL, STORE_GROUP_OPT },
@@ -453,6 +456,12 @@ elogd_parse_cmdln(int argc, char * const argv[])
 
 		case USER_OPT:
 			if (elogd_parse_user_name(optarg, &elogd_conf.user))
+				goto out;
+			break;
+
+		case LOCK_PATH_OPT:
+			if (elogd_parse_lock_path(optarg,
+			                          &elogd_conf.lock_path))
 				goto out;
 			break;
 
@@ -742,23 +751,10 @@ static
 int
 elogd_acquire_lock(void)
 {
-	char * path;
-	int    ret = EXIT_FAILURE;
-
-	if (elogd_make_lock_path(&path,
-	                         elogd_conf.rundir_path,
-	                         elogd_conf.rundir_len))
+	if (elogd_lock(elogd_conf.lock_path))
 		return EXIT_FAILURE;
 
-	if (elogd_lock(path))
-		goto free;
-
-	ret = EXIT_SUCCESS;
-
-free:
-	free(path);
-
-	return ret;
+	return EXIT_SUCCESS;
 }
 
 static __elogd_nonull(1)

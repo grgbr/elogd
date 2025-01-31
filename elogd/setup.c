@@ -18,6 +18,7 @@ struct elogd_setup_conf {
 	const char *           kern_group;
 #endif /* defined(CONFIG_ELOGD_KERN) */
 	const char *           user;
+	const char *           lock_path;
 	const char *           rundir_path;
 	size_t                 rundir_len;
 	const char *           rundir_group;
@@ -59,6 +60,7 @@ struct elogd_setup_conf {
 #define elogd_setup_assert_conf(_conf) \
 	elogd_setup_assert_kern_conf(_conf); \
 	elogd_assert(upwd_validate_user_name((_conf)->user) > 0); \
+	elogd_assert(upath_validate_path_name((_conf)->lock_path) > 0); \
 	elogd_assert((_conf)->rundir_len); \
 	elogd_assert((size_t) \
 	             upath_validate_path_name((_conf)->rundir_path) == \
@@ -77,6 +79,7 @@ static struct elogd_setup_conf elogd_setup_the_conf = {
 	.kern_group     = ELOGD_EVAL_STRING(CONFIG_ELOGD_KERN_GROUP),
 #endif /* defined(CONFIG_ELOGD_KERN) */
 	.user           = ELOGD_EVAL_STRING(CONFIG_ELOGD_USER),
+	.lock_path      = ELOGD_EVAL_STRING(CONFIG_ELOGD_LOCK_PATH),
 	.rundir_path    = ELOGD_EVAL_STRING(CONFIG_ELOGD_RUNSTATEDIR_PATH),
 	.rundir_len     = sizeof(CONFIG_ELOGD_RUNSTATEDIR_PATH) - 1,
 	.rundir_group   = ELOGD_EVAL_STRING(CONFIG_ELOGD_RUNSTATEDIR_GROUP),
@@ -130,8 +133,9 @@ static
 int
 elogd_setup_kern_dmesg(void)
 {
+#warning FIXME: switch to 1 once cap_syslog inheritance is implemented...
 	return elogd_setup_sysctl_write("/proc/sys/kernel/dmesg_restrict",
-	                                "1\n",
+	                                "0\n",
 	                                2);
 }
 
@@ -607,6 +611,8 @@ fini:
 "    --user=USER          -- setup filesystem for running eLogd daemon as USER\n" \
 "                            user\n" \
 "                            (defaults to `" CONFIG_ELOGD_USER "')\n" \
+"    --lock-path=PATH     -- use PATH as pathname to lock file\n" \
+"                            (defaults to `" CONFIG_ELOGD_LOCK_PATH "')\n" \
 "    --no-kern            -- do not setup kernel log\n" \
 ELOGD_SETUP_KERN_USAGE \
 "    --rundir-path=PATH   -- use PATH as pathname to directory where volatile\n" \
@@ -636,21 +642,22 @@ elogd_setup_show_usage(void)
 
 enum {
 	USER_OPT           = 1U << 0,
-	NO_KERN_OPT        = 1U << 1,
+	LOCK_PATH_OPT      = 1U << 1,
+	NO_KERN_OPT        = 1U << 2,
 #if defined(CONFIG_ELOGD_KERN)
-	KERN_GROUP_OPT     = 1U << 2,
+	KERN_GROUP_OPT     = 1U << 3,
 #endif /* defined(CONFIG_ELOGD_KERN) */
-	RUNDIR_PATH_OPT    = 1U << 3,
-	RUNDIR_GROUP_OPT   = 1U << 4,
-	NO_DEVLOG_OPT      = 1U << 5,
-	NO_STORE_OPT       = 1U << 6,
-	STORE_PATH_OPT     = 1U << 7,
-	STORE_GROUP_OPT    = 1U << 8,
+	RUNDIR_PATH_OPT    = 1U << 4,
+	RUNDIR_GROUP_OPT   = 1U << 5,
+	NO_DEVLOG_OPT      = 1U << 6,
+	NO_STORE_OPT       = 1U << 7,
+	STORE_PATH_OPT     = 1U << 8,
+	STORE_GROUP_OPT    = 1U << 9,
 #if defined(CONFIG_ELOGD_MQUEUE)
-	MQUEUE_NAME_OPT    = 1U << 9,
-	MQUEUE_LOG_OPT     = 1U << 10,
+	MQUEUE_NAME_OPT    = 1U << 10,
+	MQUEUE_LOG_OPT     = 1U << 11,
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-	VERBOSE_OPT        = 1U << 11,
+	VERBOSE_OPT        = 1U << 12,
 	HELP_OPT           = 'h',
 	MISSING_OPT        = ':',
 	UNKNOWN_OPT        = '?'
@@ -678,6 +685,7 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 			{ "kern-group",     required_argument, NULL, KERN_GROUP_OPT },
 #endif /* defined(CONFIG_ELOGD_KERN) */
 			{ "user",           required_argument, NULL, USER_OPT },
+			{ "lock-path",      required_argument, NULL, LOCK_PATH_OPT },
 			{ "rundir-path",    required_argument, NULL, RUNDIR_PATH_OPT },
 			{ "rundir-group",   required_argument, NULL, RUNDIR_GROUP_OPT },
 			{ "no-devlog",      no_argument,       NULL, NO_DEVLOG_OPT },
@@ -701,6 +709,13 @@ elogd_setup_parse_cmdln(int argc, char * const argv[])
 		case USER_OPT:
 			if (elogd_parse_user_name(optarg,
 			                          &elogd_setup_the_conf.user))
+				goto out;
+			break;
+
+		case LOCK_PATH_OPT:
+			if (elogd_parse_lock_path(
+				optarg,
+				&elogd_setup_the_conf.lock_path))
 				goto out;
 			break;
 
@@ -837,30 +852,16 @@ out:
 	return ret;
 }
 
-static char * elogd_setup_lock_path;
-
 static
 int
 elogd_setup_lock(void)
 {
 	elogd_setup_assert_conf(&elogd_setup_the_conf);
 
-	if (elogd_make_lock_path(&elogd_setup_lock_path,
-	                         elogd_setup_the_conf.rundir_path,
-	                         elogd_setup_the_conf.rundir_len))
+	if (elogd_lock(elogd_setup_the_conf.lock_path))
 		return EXIT_FAILURE;
 
-	if (elogd_lock(elogd_setup_lock_path))
-		goto free;
-
 	return EXIT_SUCCESS;
-
-free:
-#if defined(CONFIG_ELOGD_DEBUG)
-	free(elogd_setup_lock_path);
-#endif /* defined(CONFIG_ELOGD_DEBUG) */
-
-	return EXIT_FAILURE;
 }
 
 static
@@ -868,22 +869,17 @@ int
 elogd_setup_unlock(void)
 {
 	elogd_setup_assert_conf(&elogd_setup_the_conf);
-	elogd_assert(elogd_setup_lock_path);
 
 	int ret;
 
-	ret = ufile_unlink(elogd_setup_lock_path);
+	ret = ufile_unlink(elogd_setup_the_conf.lock_path);
 	if (ret)
 		elogd_warn("cannot remove lock file: '%s': %s (%d).",
-		           elogd_setup_lock_path,
+		           elogd_setup_the_conf.lock_path,
 		           strerror(-ret),
 		           -ret);
 
 	elogd_unlock();
-
-#if defined(CONFIG_ELOGD_DEBUG)
-	free(elogd_setup_lock_path);
-#endif /* defined(CONFIG_ELOGD_DEBUG) */
 
 	return ret;
 }
