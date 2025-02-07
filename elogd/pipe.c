@@ -424,6 +424,10 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 
 	elogd_queue_init(&pipe->outq, nr);
 
+	err = elogd_pipe_create_kern(pipe, poll);
+	if (err)
+		goto destroy_sock;
+
 	if (elogd_conf.sock_on) {
 		pipe->sock = elogd_sock_create(pipe, poll);
 		if (!pipe->sock) {
@@ -433,10 +437,6 @@ elogd_pipe_open(struct elogd_pipe * __restrict  pipe,
 	}
 	else
 		pipe->sock = NULL;
-
-	err = elogd_pipe_create_kern(pipe, poll);
-	if (err)
-		goto destroy_sock;
 
 	err = elogd_pipe_create_mqueue(pipe, poll);
 	if (err)

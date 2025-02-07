@@ -11,6 +11,7 @@
 #include <utils/poll.h>
 #include <utils/time.h>
 #include <utils/file.h>
+#include <enbox/enbox.h>
 #include <ctype.h>
 #include <sys/mman.h>
 
@@ -479,6 +480,9 @@ elogd_kern_open_dev(struct elogd_kern * __restrict kern)
 		goto err;
 	}
 
+	/* Now drop all system capabilities since we don't them anymore. */
+	enbox_clear_epi_caps();
+
 	err = ufd_fstat(fd, &st);
 	if (err) {
 		msg = "status retrieval failed";
@@ -570,7 +574,7 @@ elogd_kern_open_stat(struct elogd_kern * __restrict kern)
 		goto close;
 	}
 
-	if ((st.st_uid != elogd_uid) || (st.st_gid != elogd_gid)) {
+	if ((st.st_uid != enbox_get_uid()) || (st.st_gid != enbox_get_gid())) {
 		err = -EPERM;
 		msg = "unexpected ownership";
 		goto close;

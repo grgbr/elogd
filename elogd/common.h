@@ -17,9 +17,6 @@
 #include <stroll/dlist.h>
 #include <linux/taskstats.h>
 
-extern uid_t elogd_uid;
-extern gid_t elogd_gid;
-
 /******************************************************************************
  * Rate limited logging
  ******************************************************************************/
@@ -87,11 +84,6 @@ struct elogd_config {
 	size_t                 store_flen;
 	/* Output message files permission group name. */
 	const char *           store_group;
-
-#if defined(CONFIG_ELOGD_NOSEC)
-	/* Is secure operation required. */
-	bool                   sec_on;
-#endif /* defined(CONFIG_ELOGD_NOSEC) */
 
 	/* Username eLogd switches to at initialization time. */
 	const char *           user;

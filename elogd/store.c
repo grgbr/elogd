@@ -11,6 +11,7 @@
 #include <utils/file.h>
 #include <utils/dir.h>
 #include <sys/statvfs.h>
+#include <enbox/enbox.h>
 
 #define elogd_store_assert(_store) \
 	elogd_assert(_store); \
@@ -75,14 +76,14 @@ elogd_store_open_file(struct elogd_store * __restrict store)
 
 	err = upwd_get_gid_byname(elogd_conf.store_group, &gid);
 	if (err) {
-		gid = elogd_gid;
+		gid = enbox_get_gid();
 		elogd_ratelim_warn("unknown log store group...",
 		                   "unknown log store group '%s', "
 		                   "using default GID %d.",
 		                   elogd_conf.store_group,
 		                   gid);
 	}
-	err = ufile_fchown(store->fd, elogd_uid, gid);
+	err = ufile_fchown(store->fd, enbox_get_uid(), gid);
 	if (err) {
 		msg = "ownership setup failed";
 		goto close;
@@ -403,7 +404,7 @@ elogd_store_open_dir(struct elogd_store * __restrict store)
 		goto close;
 	}
 
-	if (st.st_uid != elogd_uid) {
+	if (st.st_uid != enbox_get_uid()) {
 		err = -EPERM;
 		msg = "unexpected ownership";
 		goto close;

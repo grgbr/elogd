@@ -10,12 +10,6 @@ config ELOGD_DEBUG
 	help
 	  Build eLogd with debugging support.
 
-config ELOGD_NOSEC
-	bool "Unsecure operation support"
-	default n
-	help
-	  Build eLogd with the ability to run in unsecure mode.
-
 config ELOGD_USER
 	string "runtime user name"
 	default "elogd"

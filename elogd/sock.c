@@ -12,6 +12,7 @@
 #include <utils/pwd.h>
 #include <utils/unsk.h>
 #include <utils/poll.h>
+#include <enbox/enbox.h>
 
 /*
  * Syslog service socket message source.
@@ -448,7 +449,7 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 		goto close;
 	}
 
-	err = upath_chown(path, elogd_uid, gid);
+	err = upath_chown(path, enbox_get_uid(), gid);
 	if (err) {
 		msg = "ownership setup failed";
 		goto close;

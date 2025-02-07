@@ -22,9 +22,6 @@
 #include <getopt.h>
 #include <sysexits.h>
 
-uid_t elogd_uid;
-gid_t elogd_gid;
-
 static __elogd_nonull(1, 2, 3)
 int
 elogd_parse_fetch_count(const char * __restrict   arg,
@@ -264,19 +261,6 @@ elogd_mqueue_on(void)
 
 #endif  /* defined(CONFIG_ELOGD_MQUEUE) */
 
-#if defined(CONFIG_ELOGD_NOSEC)
-
-#define USAGE_NOSEC \
-"    --no-sec              -- disable secure operation (and do not switch to\n" \
-"                             USER user)\n"
-
-#else  /* !defined(CONFIG_ELOGD_NOSEC) */
-
-#define USAGE_NOSEC
-
-#endif /* defined(CONFIG_ELOGD_NOSEC) */
-
-
 #if defined(CONFIG_ELOGD_KERN)
 
 #define USAGE_KERN \
@@ -314,7 +298,6 @@ elogd_mqueue_on(void)
 "eLogd early system logging daemon.\n" \
 "\n" \
 "With OPTIONS:\n" \
-USAGE_NOSEC \
 "    --user=USER           -- run as USER user\n" \
 "                             (defaults to `" CONFIG_ELOGD_USER "')\n" \
 "    --lock-path=PATH      -- use PATH as pathname to lock file\n" \
@@ -365,32 +348,29 @@ elogd_show_usage(void)
 }
 
 enum {
-#if defined(CONFIG_ELOGD_NOSEC)
-	NO_SEC_OPT       = 1U << 0,
-#endif /* defined(CONFIG_ELOGD_NOSEC) */
-	USER_OPT         = 1U << 1,
-	LOCK_PATH_OPT    = 1U << 2,
-	DELAY_OPT        = 1U << 3,
-	STORE_PATH_OPT   = 1U << 4,
-	STORE_GROUP_OPT  = 1U << 5,
-	STORE_ROT_OPT    = 1U << 6,
-	STORE_SIZE_OPT   = 1U << 7,
-	RUNDIR_PATH_OPT  = 1U << 8,
-	RUNDIR_GROUP_OPT = 1U << 9,
-	NO_SOCK_OPT      = 1U << 10,
-	SOCK_FETCH_OPT   = 1U << 11,
+	USER_OPT         = 1U << 0,
+	LOCK_PATH_OPT    = 1U << 1,
+	DELAY_OPT        = 1U << 2,
+	STORE_PATH_OPT   = 1U << 3,
+	STORE_GROUP_OPT  = 1U << 4,
+	STORE_ROT_OPT    = 1U << 5,
+	STORE_SIZE_OPT   = 1U << 6,
+	RUNDIR_PATH_OPT  = 1U << 7,
+	RUNDIR_GROUP_OPT = 1U << 8,
+	NO_SOCK_OPT      = 1U << 9,
+	SOCK_FETCH_OPT   = 1U << 10,
 #if defined(CONFIG_ELOGD_KERN)
-	NO_KERN_OPT      = 1U << 12,
-	KERN_FETCH_OPT   = 1U << 13,
+	NO_KERN_OPT      = 1U << 11,
+	KERN_FETCH_OPT   = 1U << 12,
 #endif /* defined(CONFIG_ELOGD_KERN) */
 #if defined(CONFIG_ELOGD_MQUEUE)
-	NO_MQUEUE_OPT    = 1U << 14,
-	MQUEUE_NAME_OPT  = 1U << 15,
-	MQUEUE_FETCH_OPT = 1U << 16,
+	NO_MQUEUE_OPT    = 1U << 13,
+	MQUEUE_NAME_OPT  = 1U << 14,
+	MQUEUE_FETCH_OPT = 1U << 15,
 #endif /* defined(CONFIG_ELOGD_MQUEUE) */
-	INT_LOG_OPT      = 1U << 17,
-	INT_FETCH_OPT    = 1U << 18,
-	VERBOSE_OPT      = 1U << 19,
+	INT_LOG_OPT      = 1U << 16,
+	INT_FETCH_OPT    = 1U << 17,
+	VERBOSE_OPT      = 1U << 18,
 	HELP_OPT         = 'h',
 	MISSING_OPT      = ':',
 	UNKNOWN_OPT      = '?'
@@ -413,9 +393,6 @@ elogd_parse_cmdln(int argc, char * const argv[])
 	while (true) {
 		int                        opt;
 		static const struct option opts[] = {
-#if defined(CONFIG_ELOGD_NOSEC)
-			{ "no-sec",       no_argument,       NULL, NO_SEC_OPT },
-#endif /* defined(CONFIG_ELOGD_NOSEC) */
 			{ "user",         required_argument, NULL, USER_OPT },
 			{ "lock-path",    required_argument, NULL, LOCK_PATH_OPT },
 			{ "delay",        required_argument, NULL, DELAY_OPT },
@@ -448,12 +425,6 @@ elogd_parse_cmdln(int argc, char * const argv[])
 			break;
 
 		switch (opt) {
-#if defined(CONFIG_ELOGD_NOSEC)
-		case NO_SEC_OPT:
-			elogd_conf.sec_on = false;
-			break;
-#endif /* defined(CONFIG_ELOGD_NOSEC) */
-
 		case USER_OPT:
 			if (elogd_parse_user_name(optarg, &elogd_conf.user))
 				goto out;
@@ -603,16 +574,6 @@ elogd_parse_cmdln(int argc, char * const argv[])
 
 	elogd_log_fini_parse(&stdlog_parse, &intlog_parse);
 
-#if defined(CONFIG_ELOGD_NOSEC)
-	if (stroll_bmap_test_mask(optmsk, NO_SEC_OPT) &&
-	    stroll_bmap_test_mask(optmsk, USER_OPT)) {
-		elogd_early_log(
-			"invalid configuration: "
-			"--no-sec and --user options are exclusive.");
-		goto out;
-	}
-#endif /* defined(CONFIG_ELOGD_NOSEC) */
-
 	if (stroll_bmap_test_mask(optmsk, NO_SOCK_OPT) &&
 	    stroll_bmap_test_mask(optmsk, SOCK_FETCH_OPT))
 		elogd_early_log(
@@ -673,78 +634,52 @@ elogd_fetch_nr(void)
 	return nr;
 }
 
-#if defined(CONFIG_ELOGD_NOSEC)
-
-static
-bool
-elogd_security_required(void)
-{
-	return !elogd_uid || elogd_conf.sec_on;
-}
-
-#else  /* !defined(CONFIG_ELOGD_NOSEC) */
-
-static
-bool
-elogd_security_required(void)
-{
-	return true;
-}
-
-#endif /* defined(CONFIG_ELOGD_NOSEC) */
-
-static
-int
-elogd_enable_security(void)
-{
-	int   err;
-	uid_t uid;
-
-	err = enbox_lock_caps();
-	if (err)
-		goto err;
-
-	err = enbox_clear_bounding_caps();
-	if (err)
-		goto err;
-
-	if (upwd_get_uid_byname(elogd_conf.user, &uid))
-		goto err;
-
-	err = enbox_change_ids(elogd_conf.user, ENBOX_RAISE_SUPP_GROUPS);
-	if (err)
-		goto err;
-
-	elogd_uid = uid;
-
-	return 0;
-
-err:
-	elogd_err("cannot enable secure operations: %s (%d).",
-	          strerror(-err),
-	          -err);
-
-	return err;
-}
-
 static
 void
 elogd_secure(void)
 {
 	elogd_assert_conf();
 
+	const struct passwd * pwd;
+	int                   err;
+	const char *          msg;
+	uint64_t              caps = elogd_conf.kern_on ? ENBOX_CAP(CAP_SYSLOG)
+	                                                : 0;
+
 	umask(07077);
 	enbox_setup((struct elog *)elogd_logger);
 
-	elogd_uid = getuid();
+	pwd = upwd_get_user_byname(elogd_conf.user);
+	if (!pwd) {
+		err = -errno;
+		elogd_assert(err < 0);
+		elogd_assert(err != -ENODATA);
+		elogd_assert(err != -ENAMETOOLONG);
 
-	if (elogd_security_required())
-		if (elogd_enable_security())
-			exit(EXIT_FAILURE);
+		msg = "unexpected user";
+		goto err;
+	}
 
-	elogd_gid = getgid();
+	if (!pwd->pw_uid || (pwd->pw_uid == enbox_uid)) {
+		enbox_ensure_safe(caps);
+		return;
+	}
+
+	err = enbox_change_ids(pwd, ENBOX_RAISE_SUPP_GROUPS, caps);
+	if (err) {
+		msg = "cannot change IDs";
+		goto err;
+	}
 
 	return;
+
+err:
+	elogd_err("cannot enable secure operations: %s: %s (%d).",
+	          msg,
+	          strerror(-err),
+	          -err);
+
+	exit(EXIT_FAILURE);
 }
 
 static

@@ -133,9 +133,8 @@ static
 int
 elogd_setup_kern_dmesg(void)
 {
-#warning FIXME: switch to 1 once cap_syslog inheritance is implemented...
 	return elogd_setup_sysctl_write("/proc/sys/kernel/dmesg_restrict",
-	                                "0\n",
+	                                "1\n",
 	                                2);
 }
 
