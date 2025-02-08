@@ -440,7 +440,7 @@ elogd_sock_open(struct elogd_sock * __restrict  sock,
 		goto err;
 	}
 
-#define ELOGD_SOCK_MODE (S_IRUSR | S_IWGRP)
+#define ELOGD_SOCK_MODE (S_IRUSR | S_IWGRP | S_IWOTH)
 	msk = umask(ALLPERMS & ~ELOGD_SOCK_MODE);
 	err = unsk_svc_bind(&sock->unsk, path);
 	umask(msk);
