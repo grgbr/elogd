@@ -40,7 +40,7 @@
 #endif /* defined(CONFIG_ELOGD_DEBUG) */
 #define ELOGD_USAGE_LEVEL \
 	"Where:\n" \
-	"    LEVEL := none|dflt|emerg|alert|crit|err|warn|notice|info" \
+	"    SEVERITY := none|dflt|emerg|alert|crit|err|warn|notice|info" \
 	ELOGD_USAGE_DEBUG_LEVEL
 
 #if defined(CONFIG_ELOGD_ASSERT)
