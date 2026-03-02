@@ -481,7 +481,7 @@ elogd_kern_open_dev(struct elogd_kern * __restrict kern)
 	}
 
 	/* Now drop all system capabilities since we don't them anymore. */
-	enbox_clear_epi_caps();
+	/* enbox_clear_epi_caps(); */
 
 	err = ufd_fstat(fd, &st);
 	if (err) {
