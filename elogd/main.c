@@ -644,7 +644,7 @@ elogd_secure(void)
 	int                   err;
 	const char *          msg;
 	uint64_t              caps = elogd_kern_on() ? ENBOX_CAP(CAP_SYSLOG)
-	                                                : 0;
+	                                             : 0;
 
 	umask(07077);
 	enbox_setup((struct elog *)elogd_logger);
