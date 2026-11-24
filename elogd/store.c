@@ -229,7 +229,6 @@ elogd_store_complete_partial_writev(struct elogd_queue * __restrict queue,
 
 	elogd_assert(stroll_dlist_next(last) != elogd_queue_head(queue));
 	elogd_assert(size <= written);
-
 	if (size < written) {
 		/*
 		 * Adjust content of first uncompleted line / iovec to reflect
